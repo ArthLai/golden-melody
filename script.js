@@ -309,10 +309,12 @@ function createYTPlayer(videoId) {
 }
 
 var hasSeekStarted = false;
+var isRevealPlayback = false;
+var currentRandomStart = 0;  // store the random start position for replay
 
 function onPlayerStateChange(event) {
-  // When video first starts playing, seek to random segment
-  if (event.data === YT.PlayerState.PLAYING && !hasSeekStarted) {
+  // When video first starts playing, seek to random segment (but not during reveal)
+  if (event.data === YT.PlayerState.PLAYING && !hasSeekStarted && !isRevealPlayback) {
     hasSeekStarted = true;
     try {
       var duration = ytPlayer.getDuration();
@@ -320,8 +322,10 @@ function onPlayerStateChange(event) {
         // Pick a random start between 10% and 70% of the song
         var minStart = Math.floor(duration * 0.1);
         var maxStart = Math.floor(duration * 0.7);
-        var randomStart = minStart + Math.floor(Math.random() * (maxStart - minStart));
-        ytPlayer.seekTo(randomStart, true);
+        currentRandomStart = minStart + Math.floor(Math.random() * (maxStart - minStart));
+        ytPlayer.seekTo(currentRandomStart, true);
+      } else {
+        currentRandomStart = 0;
       }
     } catch (e) { /* ignore seek errors */ }
     startPlaybackTimer();
@@ -334,12 +338,15 @@ function startPlaybackTimer() {
   secondsLeft = CONFIG.PLAYBACK_SECONDS;
   updateTimerDisplay();
   clearInterval(playbackTimer);
-  playbackTimer = setInterval(() => {
+  playbackTimer = setInterval(function() {
     secondsLeft--;
     updateTimerDisplay();
     if (secondsLeft <= 0) {
       clearInterval(playbackTimer);
       if (ytPlayer) ytPlayer.pauseVideo();
+      // Show replay button
+      var replayBtn = document.getElementById('btn-replay');
+      if (replayBtn) replayBtn.style.display = '';
       // Unlock guess section
       unlockGuessSection();
     }
@@ -402,8 +409,9 @@ function handlePlayerList(list) {
 // --- Game start ---
 function startGame() {
   if (!isHost) return;
-  var winEl = document.getElementById('win-score-select-waiting');
-  winScore = parseInt(winEl ? winEl.value : document.getElementById('win-score-select').value, 10) || 5;
+  var winEl = document.getElementById('win-score-input-waiting');
+  winScore = parseInt(winEl ? winEl.value : document.getElementById('win-score-input').value, 10) || 5;
+  if (winScore < 1) winScore = 1;
   gameState.phase = 'playing';
   gameState.currentPlayerIndex = 0;
   gameState.round = 1;
@@ -472,9 +480,15 @@ function handleNewTurn(payload) {
   selectedGapIndex = null;
   betSelectedGapIndex = null;
 
-  // Restore YT mask for new round
+  // Restore YT mask and playback controls for new round
   var mask = document.getElementById('yt-mask');
   if (mask) mask.style.display = '';
+  var controls = document.querySelector('.playback-controls');
+  if (controls) controls.style.display = '';
+  isRevealPlayback = false;
+
+  // Stop any currently playing video
+  stopPlayback();
 
   setupTurnUI();
 }
@@ -499,6 +513,7 @@ function setupTurnUI() {
     document.getElementById('timeline-owner-label').textContent = '我的時間軸';
     renderTimeline('timeline', currentPlayer.timeline, true);
     document.getElementById('btn-play').disabled = false;
+    document.getElementById('btn-replay').style.display = 'none';
     document.getElementById('btn-submit-placement').disabled = true;
     document.getElementById('guess-artist').value = '';
     document.getElementById('guess-title').value = '';
@@ -753,15 +768,24 @@ function handleReveal(payload) {
   renderTimeline('timeline', currentPlayer.timeline, false);
   renderScoreboard();
 
-  // Show reveal
-  document.getElementById('music-section').style.display = 'none';
+  // Show reveal + YouTube video
+  document.getElementById('music-section').style.display = '';
   document.getElementById('guess-section').style.display = 'none';
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = '';
 
-  // Remove YT mask to reveal the video
+  // Remove YT mask to reveal the video and play it
   var mask = document.getElementById('yt-mask');
   if (mask) mask.style.display = 'none';
+  // Hide playback controls during reveal
+  document.querySelector('.playback-controls').style.display = 'none';
+  // Load and play the revealed song (from beginning)
+  isRevealPlayback = true;
+  if (ytPlayer && payload.song && payload.song.youtubeId) {
+    try {
+      ytPlayer.loadVideoById(payload.song.youtubeId);
+    } catch (e) { /* ignore */ }
+  }
 
   var html = '<div class="reveal-answer">';
   html += '<div class="answer-song">' + payload.song.artist + ' — ' + payload.song.title + '</div>';
@@ -914,15 +938,20 @@ function handleDirectScore(payload) {
   renderTimeline('timeline', currentPlayer.timeline, false);
   renderScoreboard();
 
-  // Show reveal
-  document.getElementById('music-section').style.display = 'none';
+  // Show reveal + YouTube video
+  document.getElementById('music-section').style.display = '';
   document.getElementById('guess-section').style.display = 'none';
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = '';
 
-  // Remove mask
+  // Remove mask, hide controls, play video
   var mask = document.getElementById('yt-mask');
   if (mask) mask.style.display = 'none';
+  document.querySelector('.playback-controls').style.display = 'none';
+  isRevealPlayback = true;
+  if (ytPlayer && payload.song && payload.song.youtubeId) {
+    try { ytPlayer.loadVideoById(payload.song.youtubeId); } catch (e) { /* ignore */ }
+  }
 
   var scorer = players.find(function(p) { return p.id === payload.playerId; });
   var html = '<div class="reveal-answer">';
@@ -972,7 +1001,16 @@ function insertIntoTimeline(timeline, gapIndex, song) {
 
 function normalizeGuess(str) {
   if (!str) return '';
-  return str.toLowerCase().replace(/\s+/g, '').replace(/[^\w\u4e00-\u9fff]/g, '');
+  // Remove all whitespace, punctuation, special chars; keep alphanumeric + CJK
+  // Also normalize full-width to half-width
+  var s = str.toLowerCase();
+  // Full-width alphanumeric → half-width
+  s = s.replace(/[\uff01-\uff5e]/g, function(ch) {
+    return String.fromCharCode(ch.charCodeAt(0) - 0xfee0);
+  });
+  // Remove everything except letters, digits, CJK unified ideographs, kana, hangul, bopomofo
+  s = s.replace(/[^a-z0-9\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3100-\u312f]/g, '');
+  return s;
 }
 
 // ============================================================
@@ -1028,7 +1066,7 @@ function renderTimeline(containerId, timeline, interactive) {
     // Card
     const cardEl = document.createElement('div');
     cardEl.className = 'timeline-card';
-    cardEl.innerHTML = `<div class="card-year">${card.year}</div><div class="card-artist">${card.artist}</div>`;
+    cardEl.innerHTML = '<div class="card-year">' + card.year + '</div><div class="card-title">' + card.title + '</div><div class="card-artist">' + card.artist + '</div>';
     container.appendChild(cardEl);
 
     // Gap after card
@@ -1082,7 +1120,7 @@ function renderBettingTimeline(heroTimeline, heroGapIndex) {
     if (i < heroTimeline.length) {
       const cardEl = document.createElement('div');
       cardEl.className = 'timeline-card';
-      cardEl.innerHTML = `<div class="card-year">${heroTimeline[i].year}</div><div class="card-artist">${heroTimeline[i].artist}</div>`;
+      cardEl.innerHTML = '<div class="card-year">' + heroTimeline[i].year + '</div><div class="card-title">' + heroTimeline[i].title + '</div><div class="card-artist">' + heroTimeline[i].artist + '</div>';
       container.appendChild(cardEl);
     }
   }
@@ -1161,6 +1199,26 @@ function initEventListeners() {
   document.getElementById('btn-next-round').addEventListener('click', nextRound);
   document.getElementById('btn-swap').addEventListener('click', swapSong);
   document.getElementById('btn-direct-score').addEventListener('click', directScore);
+
+  document.getElementById('btn-replay').addEventListener('click', function() {
+    if (ytPlayer && typeof ytPlayer.seekTo === 'function') {
+      ytPlayer.seekTo(currentRandomStart, true);
+      ytPlayer.playVideo();
+      // Restart timer
+      secondsLeft = CONFIG.PLAYBACK_SECONDS;
+      updateTimerDisplay();
+      clearInterval(playbackTimer);
+      playbackTimer = setInterval(function() {
+        secondsLeft--;
+        updateTimerDisplay();
+        if (secondsLeft <= 0) {
+          clearInterval(playbackTimer);
+          if (ytPlayer) ytPlayer.pauseVideo();
+        }
+      }, 1000);
+      document.getElementById('btn-replay').style.display = 'none';
+    }
+  });
 }
 
 // ============================================================
