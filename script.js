@@ -36,13 +36,15 @@ var isHost = false;
 // Room / Game
 var roomCode = '';
 var players = [];        // [{id, name, isHost, score, tokens, timeline:[]}]
+var winScore = 5;         // configurable win condition
 var gameState = {
   phase: 'waiting',      // waiting | playing | placing | betting | reveal
   currentPlayerIndex: 0,
   round: 1,
   currentSong: null,     // {artist, title, year, youtubeId}
   heroPlacement: null,   // {gapIndex, guessArtist, guessTitle}
-  bets: {},              // {playerId: {gapIndex, guessArtist, guessTitle}}
+  bets: {},              // {playerId: {gapIndex, guessArtist, guessTitle, timestamp}}
+  betOrder: [],          // ordered list of player ids who bet (first submitter wins ties)
   usedSongIds: [],
 };
 
@@ -246,10 +248,13 @@ function handleSyncMessage(payload) {
       handleReveal(payload);
       break;
     case 'next_round':
-      handleNextRound(payload);
+      handleNewTurn(payload);
       break;
     case 'swap_song':
       handleSwapSong(payload);
+      break;
+    case 'direct_score':
+      handleDirectScore(payload);
       break;
   }
 }
@@ -303,9 +308,25 @@ function createYTPlayer(videoId) {
   });
 }
 
+var hasSeekStarted = false;
+
 function onPlayerStateChange(event) {
-  if (event.data === YT.PlayerState.PLAYING) {
+  // When video first starts playing, seek to random segment
+  if (event.data === YT.PlayerState.PLAYING && !hasSeekStarted) {
+    hasSeekStarted = true;
+    try {
+      var duration = ytPlayer.getDuration();
+      if (duration > CONFIG.PLAYBACK_SECONDS + 10) {
+        // Pick a random start between 10% and 70% of the song
+        var minStart = Math.floor(duration * 0.1);
+        var maxStart = Math.floor(duration * 0.7);
+        var randomStart = minStart + Math.floor(Math.random() * (maxStart - minStart));
+        ytPlayer.seekTo(randomStart, true);
+      }
+    } catch (e) { /* ignore seek errors */ }
     startPlaybackTimer();
+  } else if (event.data === YT.PlayerState.PLAYING && hasSeekStarted) {
+    // After seek completes, timer is already running
   }
 }
 
@@ -381,10 +402,13 @@ function handlePlayerList(list) {
 // --- Game start ---
 function startGame() {
   if (!isHost) return;
+  var winEl = document.getElementById('win-score-select-waiting');
+  winScore = parseInt(winEl ? winEl.value : document.getElementById('win-score-select').value, 10) || 5;
   gameState.phase = 'playing';
   gameState.currentPlayerIndex = 0;
   gameState.round = 1;
   gameState.usedSongIds = [];
+  gameState.betOrder = [];
 
   // Give each player an initial year card from the song pool
   var pool = getFilteredSongs();
@@ -408,6 +432,7 @@ function startGame() {
   broadcastSync({
     type: 'game_start',
     players: players,
+    winScore: winScore,
     gameState: {
       ...gameState,
       // Only send youtubeId to all; artist/title/year hidden until reveal
@@ -424,9 +449,11 @@ function handleGameStart(payload) {
     score: p.score || 0,
     tokens: p.tokens ?? CONFIG.INITIAL_TOKENS,
   }));
+  winScore = payload.winScore || 5;
   gameState = {
     ...payload.gameState,
     currentSong: payload.fullSong || payload.gameState.currentSong,
+    betOrder: [],
   };
   showScreen('screen-game');
   setupTurnUI();
@@ -439,10 +466,16 @@ function handleNewTurn(payload) {
   gameState.phase = 'playing';
   gameState.heroPlacement = null;
   gameState.bets = {};
+  gameState.betOrder = [];
   gameState.currentSong = payload.fullSong || payload.currentSong;
   players = payload.players || players;
   selectedGapIndex = null;
   betSelectedGapIndex = null;
+
+  // Restore YT mask for new round
+  var mask = document.getElementById('yt-mask');
+  if (mask) mask.style.display = '';
+
   setupTurnUI();
 }
 
@@ -476,7 +509,12 @@ function setupTurnUI() {
     const swapBtn = document.getElementById('btn-swap');
     swapBtn.style.display = currentPlayer.tokens >= 1 ? '' : 'none';
 
+    // Direct score button
+    const directBtn = document.getElementById('btn-direct-score');
+    if (directBtn) directBtn.style.display = currentPlayer.tokens >= 3 ? '' : 'none';
+
     // Load video
+    hasSeekStarted = false;
     if (gameState.currentSong) {
       if (ytReady && !ytPlayer) {
         createYTPlayer(gameState.currentSong.youtubeId);
@@ -532,6 +570,14 @@ function handleHeroSubmitted(payload) {
     document.getElementById('reveal-section').style.display = '';
     document.getElementById('reveal-content').innerHTML = '<h3>等待其他玩家下注...</h3>';
     document.getElementById('btn-next-round').style.display = 'none';
+
+    // If no other players, auto-reveal immediately
+    if (isHost) {
+      var nonHeroPlayers = players.filter(function(p, i) { return i !== gameState.currentPlayerIndex; });
+      if (nonHeroPlayers.length === 0) {
+        setTimeout(function() { triggerReveal(); }, 500);
+      }
+    }
   } else {
     // Spectator enters betting mode
     document.getElementById('music-section').style.display = 'none';
@@ -543,47 +589,68 @@ function handleHeroSubmitted(payload) {
     renderBettingTimeline(heroTimeline, payload.placement.gapIndex);
 
     betSelectedGapIndex = null;
-    document.getElementById('btn-submit-bet').disabled = true;
+    document.getElementById('btn-submit-bet').disabled = false; // allow skip (no gap selected = skip bet position)
     document.getElementById('bet-guess-artist').value = '';
     document.getElementById('bet-guess-title').value = '';
 
     const me = players.find(p => p.id === myId);
     if (me && me.tokens < 1) {
-      document.getElementById('btn-submit-bet').disabled = true;
-      document.querySelector('.bet-hint').textContent = '籌碼不足，無法下注';
+      document.querySelector('.bet-hint').textContent = '籌碼不足，無法下注位置（可猜歌手/歌名）';
+    } else {
+      document.querySelector('.bet-hint').textContent = '選擇年代位置下注 (-1 籌碼)，或直接提交猜歌手/歌名';
     }
   }
 }
 
 // --- Betting ---
 function submitBet() {
-  if (betSelectedGapIndex === null) return;
   const me = players.find(p => p.id === myId);
-  if (!me || me.tokens < 1) return;
+  if (!me) return;
+
+  var guessArtist = document.getElementById('bet-guess-artist').value.trim();
+  var guessTitle = document.getElementById('bet-guess-title').value.trim();
+  var hasBetPosition = betSelectedGapIndex !== null;
+
+  // If betting on position, must have at least 1 token
+  if (hasBetPosition && me.tokens < 1) {
+    alert('籌碼不足，無法下注位置');
+    return;
+  }
+
+  // Must have at least something (gap, artist guess, or title guess)
+  if (!hasBetPosition && !guessArtist && !guessTitle) {
+    // Pure skip — still send so host knows
+  }
 
   broadcastSync({
     type: 'bet_placed',
     playerId: myId,
     playerName: myName,
+    timestamp: Date.now(),
     bet: {
-      gapIndex: betSelectedGapIndex,
-      guessArtist: document.getElementById('bet-guess-artist').value.trim(),
-      guessTitle: document.getElementById('bet-guess-title').value.trim(),
+      gapIndex: hasBetPosition ? betSelectedGapIndex : null,
+      guessArtist: guessArtist,
+      guessTitle: guessTitle,
     },
   });
 
   document.getElementById('btn-submit-bet').disabled = true;
-  document.querySelector('.bet-hint').textContent = '已提交下注，等待結算...';
+  document.querySelector('.bet-hint').textContent = '已提交，等待結算...';
 }
 
 function handleBetPlaced(payload) {
   gameState.bets[payload.playerId] = payload.bet;
+  // Track submission order
+  if (!gameState.betOrder) gameState.betOrder = [];
+  if (!gameState.betOrder.includes(payload.playerId)) {
+    gameState.betOrder.push(payload.playerId);
+  }
 
-  // Host: if all non-hero players have bet (or passed), auto-reveal
+  // Host: if all non-hero players have submitted, auto-reveal
   if (isHost) {
     const nonHeroPlayers = players.filter((p, i) => i !== gameState.currentPlayerIndex);
-    const allBet = nonHeroPlayers.every(p => gameState.bets[p.id] || (players.find(pp => pp.id === p.id)?.tokens || 0) < 1);
-    if (allBet) {
+    const allSubmitted = nonHeroPlayers.every(p => gameState.bets[p.id] !== undefined);
+    if (allSubmitted) {
       setTimeout(() => triggerReveal(), 500);
     }
   }
@@ -592,60 +659,88 @@ function handleBetPlaced(payload) {
 // --- Reveal ---
 function triggerReveal() {
   if (!isHost) return;
-  const song = gameState.currentSong;
-  const currentPlayer = players[gameState.currentPlayerIndex];
+  var song = gameState.currentSong;
+  var currentPlayer = players[gameState.currentPlayerIndex];
 
   // Calculate correct gap indices for this song
-  const correctGaps = getCorrectGapIndices(currentPlayer.timeline, song.year);
+  var correctGaps = getCorrectGapIndices(currentPlayer.timeline, song.year);
 
-  // Score hero
-  const heroCorrect = correctGaps.includes(gameState.heroPlacement.gapIndex);
+  // Score hero placement
+  var heroCorrect = correctGaps.includes(gameState.heroPlacement.gapIndex);
   if (heroCorrect) currentPlayer.score += 1;
 
   // Hero artist/title guesses
-  if (normalizeGuess(gameState.heroPlacement.guessArtist) === normalizeGuess(song.artist)) {
-    currentPlayer.tokens += 1;
-  }
-  if (normalizeGuess(gameState.heroPlacement.guessTitle) === normalizeGuess(song.title)) {
-    currentPlayer.tokens += 1;
-  }
+  var heroArtistCorrect = normalizeGuess(gameState.heroPlacement.guessArtist) === normalizeGuess(song.artist);
+  var heroTitleCorrect = normalizeGuess(gameState.heroPlacement.guessTitle) === normalizeGuess(song.title);
+  if (heroArtistCorrect) currentPlayer.tokens += 1;
+  if (heroTitleCorrect) currentPlayer.tokens += 1;
 
-  // Insert song into hero's timeline at the placement position
+  // Insert song into hero's timeline
   insertIntoTimeline(currentPlayer.timeline, gameState.heroPlacement.gapIndex, song);
 
-  // Score bettors
-  const betResults = {};
-  for (const [pid, bet] of Object.entries(gameState.bets)) {
-    const bettor = players.find(p => p.id === pid);
+  // Score bettors — use betOrder for first-submit priority
+  var betResults = {};
+  var artistTokenClaimed = heroArtistCorrect;  // hero has priority
+  var titleTokenClaimed = heroTitleCorrect;     // hero has priority
+  var betOrder = gameState.betOrder || Object.keys(gameState.bets);
+
+  for (var b = 0; b < betOrder.length; b++) {
+    var pid = betOrder[b];
+    var bet = gameState.bets[pid];
+    if (!bet) continue;
+    var bettor = players.find(function(p) { return p.id === pid; });
     if (!bettor) continue;
 
-    bettor.tokens -= 1; // pay bet cost
-    const betCorrect = correctGaps.includes(bet.gapIndex);
-    if (betCorrect) {
-      bettor.score += 1;
-      bettor.tokens += 2; // net +1 token profit
+    var betPositionCorrect = false;
+    var betArtistCorrect = false;
+    var betTitleCorrect = false;
+
+    // Position bet: costs 1 token only if they chose a position
+    if (bet.gapIndex !== null) {
+      bettor.tokens -= 1;
+      betPositionCorrect = correctGaps.includes(bet.gapIndex);
+      if (betPositionCorrect) {
+        bettor.score += 1;
+        bettor.tokens += 2; // net +1 profit
+      }
     }
-    if (normalizeGuess(bet.guessArtist) === normalizeGuess(song.artist)) {
+
+    // Artist/title guess: only first correct guesser gets token (hero has priority)
+    if (!artistTokenClaimed && normalizeGuess(bet.guessArtist) === normalizeGuess(song.artist)) {
+      betArtistCorrect = true;
       bettor.tokens += 1;
+      artistTokenClaimed = true;
     }
-    if (normalizeGuess(bet.guessTitle) === normalizeGuess(song.title)) {
+    if (!titleTokenClaimed && normalizeGuess(bet.guessTitle) === normalizeGuess(song.title)) {
+      betTitleCorrect = true;
       bettor.tokens += 1;
+      titleTokenClaimed = true;
     }
+
     betResults[pid] = {
-      correct: betCorrect,
-      artistCorrect: normalizeGuess(bet.guessArtist) === normalizeGuess(song.artist),
-      titleCorrect: normalizeGuess(bet.guessTitle) === normalizeGuess(song.title),
+      correct: betPositionCorrect,
+      hasBetPosition: bet.gapIndex !== null,
+      artistCorrect: betArtistCorrect,
+      titleCorrect: betTitleCorrect,
+      artistBlocked: !betArtistCorrect && normalizeGuess(bet.guessArtist) === normalizeGuess(song.artist),
+      titleBlocked: !betTitleCorrect && normalizeGuess(bet.guessTitle) === normalizeGuess(song.title),
     };
   }
 
+  // Check win condition
+  var winner = players.find(function(p) { return p.score >= winScore; });
+
   broadcastSync({
     type: 'reveal',
-    song,
-    heroCorrect,
+    song: song,
+    heroCorrect: heroCorrect,
+    heroArtistCorrect: heroArtistCorrect,
+    heroTitleCorrect: heroTitleCorrect,
     heroPlacement: gameState.heroPlacement,
-    betResults,
-    players,
-    correctGaps,
+    betResults: betResults,
+    players: players,
+    correctGaps: correctGaps,
+    winner: winner ? { id: winner.id, name: winner.name, score: winner.score } : null,
   });
 }
 
@@ -654,7 +749,7 @@ function handleReveal(payload) {
   players = payload.players;
 
   // Update timeline display
-  const currentPlayer = players[gameState.currentPlayerIndex];
+  var currentPlayer = players[gameState.currentPlayerIndex];
   renderTimeline('timeline', currentPlayer.timeline, false);
   renderScoreboard();
 
@@ -664,33 +759,59 @@ function handleReveal(payload) {
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = '';
 
-  let html = '<div class="reveal-answer">';
-  html += `<div class="answer-song">${payload.song.artist} — ${payload.song.title}</div>`;
-  html += `<div class="answer-detail">${payload.song.year} 年</div>`;
+  // Remove YT mask to reveal the video
+  var mask = document.getElementById('yt-mask');
+  if (mask) mask.style.display = 'none';
+
+  var html = '<div class="reveal-answer">';
+  html += '<div class="answer-song">' + payload.song.artist + ' — ' + payload.song.title + '</div>';
+  html += '<div class="answer-detail">' + payload.song.year + ' 年</div>';
   html += '</div>';
 
   html += '<ul class="reveal-result-list">';
   // Hero result
-  const hero = players[gameState.currentPlayerIndex];
-  html += `<li>${hero.name} (主角) <span class="${payload.heroCorrect ? 'result-correct' : 'result-wrong'}">${payload.heroCorrect ? '年代正確 +1分' : '年代錯誤'}</span></li>`;
+  var hero = players[gameState.currentPlayerIndex];
+  var heroBadges = [];
+  if (payload.heroCorrect) heroBadges.push('年代正確 +1分');
+  if (payload.heroArtistCorrect) heroBadges.push('歌手正確 +1籌碼');
+  if (payload.heroTitleCorrect) heroBadges.push('歌名正確 +1籌碼');
+  var heroClass = payload.heroCorrect ? 'result-correct' : 'result-wrong';
+  html += '<li>' + hero.name + ' (主角) <span class="' + heroClass + '">' + (heroBadges.length ? heroBadges.join(', ') : '年代錯誤') + '</span></li>';
 
   // Bet results
-  for (const [pid, res] of Object.entries(payload.betResults)) {
-    const p = players.find(pp => pp.id === pid);
+  var betKeys = Object.keys(payload.betResults);
+  for (var k = 0; k < betKeys.length; k++) {
+    var pid = betKeys[k];
+    var res = payload.betResults[pid];
+    var p = players.find(function(pp) { return pp.id === pid; });
     if (!p) continue;
-    let badges = [];
-    if (res.correct) badges.push('年代正確 +1分');
-    if (res.artistCorrect) badges.push('歌手正確 +1籌碼');
-    if (res.titleCorrect) badges.push('歌名正確 +1籌碼');
-    const resultClass = res.correct ? 'result-correct' : 'result-wrong';
-    html += `<li>${p.name} <span class="${resultClass}">${badges.length ? badges.join(', ') : '未命中'}</span></li>`;
+    var badges = [];
+    if (res.hasBetPosition) {
+      if (res.correct) badges.push('年代正確 +1分');
+      else badges.push('年代錯誤 -1籌碼');
+    }
+    if (res.artistCorrect) badges.push('歌手正確 +1籌碼 (搶答最快)');
+    else if (res.artistBlocked) badges.push('歌手正確 但已被搶答');
+    if (res.titleCorrect) badges.push('歌名正確 +1籌碼 (搶答最快)');
+    else if (res.titleBlocked) badges.push('歌名正確 但已被搶答');
+    var resultClass = (res.correct || res.artistCorrect || res.titleCorrect) ? 'result-correct' : 'result-wrong';
+    html += '<li>' + p.name + ' <span class="' + resultClass + '">' + (badges.length ? badges.join(', ') : '未參與') + '</span></li>';
   }
   html += '</ul>';
 
+  // Check for winner
+  if (payload.winner) {
+    html += '<div class="winner-announcement">🏆 ' + payload.winner.name + ' 達到 ' + payload.winner.score + ' 分，獲勝！</div>';
+  }
+
   document.getElementById('reveal-content').innerHTML = html;
 
-  // Host shows "next round" button
-  document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
+  // Host shows "next round" button (unless game over)
+  if (payload.winner) {
+    document.getElementById('btn-next-round').style.display = 'none';
+  } else {
+    document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
+  }
 }
 
 // --- Next round ---
@@ -747,6 +868,7 @@ function handleSwapSong(payload) {
 
   const amHero = players[gameState.currentPlayerIndex].id === myId;
   if (amHero && ytPlayer) {
+    hasSeekStarted = false;
     ytPlayer.cueVideoById(gameState.currentSong.youtubeId);
     secondsLeft = CONFIG.PLAYBACK_SECONDS;
     updateTimerDisplay();
@@ -758,6 +880,69 @@ function handleSwapSong(payload) {
     const me = players.find(p => p.id === myId);
     swapBtn.style.display = (me && me.tokens >= 1) ? '' : 'none';
   }
+}
+
+// --- Direct score (3 tokens) ---
+function directScore() {
+  var me = players.find(function(p) { return p.id === myId; });
+  if (!me || me.tokens < 3) { alert('籌碼不足（需要 3 個籌碼）'); return; }
+  if (gameState.phase !== 'playing') return;
+
+  var song = gameState.currentSong;
+  me.tokens -= 3;
+  me.score += 1;
+
+  // Insert song into correct position on timeline
+  insertIntoTimeline(me.timeline, 0, song); // insertIntoTimeline re-sorts
+
+  stopPlayback();
+
+  broadcastSync({
+    type: 'direct_score',
+    playerId: myId,
+    song: song,
+    players: players,
+  });
+}
+
+function handleDirectScore(payload) {
+  players = payload.players || players;
+  gameState.phase = 'reveal';
+
+  // Update timeline display
+  var currentPlayer = players[gameState.currentPlayerIndex];
+  renderTimeline('timeline', currentPlayer.timeline, false);
+  renderScoreboard();
+
+  // Show reveal
+  document.getElementById('music-section').style.display = 'none';
+  document.getElementById('guess-section').style.display = 'none';
+  document.getElementById('betting-section').style.display = 'none';
+  document.getElementById('reveal-section').style.display = '';
+
+  // Remove mask
+  var mask = document.getElementById('yt-mask');
+  if (mask) mask.style.display = 'none';
+
+  var scorer = players.find(function(p) { return p.id === payload.playerId; });
+  var html = '<div class="reveal-answer">';
+  html += '<div class="answer-song">' + payload.song.artist + ' — ' + payload.song.title + '</div>';
+  html += '<div class="answer-detail">' + payload.song.year + ' 年</div>';
+  html += '</div>';
+  html += '<div style="text-align:center; margin: 1rem 0; color: var(--accent); font-size: 1.1rem;">';
+  html += '💰 ' + (scorer ? scorer.name : '???') + ' 花費 3 籌碼直接得分！';
+  html += '</div>';
+
+  // Check winner
+  var winner = players.find(function(p) { return p.score >= winScore; });
+  if (winner) {
+    html += '<div class="winner-announcement">🏆 ' + winner.name + ' 達到 ' + winner.score + ' 分，獲勝！</div>';
+    document.getElementById('btn-next-round').style.display = 'none';
+  } else {
+    document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
+  }
+
+  document.getElementById('reveal-content').innerHTML = html;
 }
 
 // ============================================================
@@ -815,6 +1000,7 @@ function renderWaitingRoom() {
   ).join('');
 
   document.getElementById('btn-start-game').style.display = isHost && players.length >= 1 ? '' : 'none';
+  document.getElementById('host-settings').style.display = isHost ? '' : 'none';
   document.getElementById('waiting-hint').style.display = isHost ? 'none' : '';
 }
 
@@ -974,6 +1160,7 @@ function initEventListeners() {
   document.getElementById('btn-submit-bet').addEventListener('click', submitBet);
   document.getElementById('btn-next-round').addEventListener('click', nextRound);
   document.getElementById('btn-swap').addEventListener('click', swapSong);
+  document.getElementById('btn-direct-score').addEventListener('click', directScore);
 }
 
 // ============================================================

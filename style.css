@@ -461,6 +461,29 @@ input, select {
 .btn-swap:hover:not(:disabled) {
   opacity: 0.85;
 }
+.btn-direct {
+  padding: 0.5rem 0.8rem;
+  background: linear-gradient(135deg, var(--accent-dark), var(--accent));
+  color: #000;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.btn-direct:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.winner-announcement {
+  text-align: center;
+  margin-top: 1.25rem;
+  padding: 1rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: rgba(253, 203, 110, 0.12);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
 
 /* Guess section */
 .guess-section {

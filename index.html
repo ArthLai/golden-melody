@@ -24,6 +24,14 @@
           <option value="全部">全部</option>
         </select>
 
+        <label for="win-score-select">勝利分數</label>
+        <select id="win-score-select">
+          <option value="3">3 分</option>
+          <option value="5" selected>5 分</option>
+          <option value="7">7 分</option>
+          <option value="10">10 分</option>
+        </select>
+
         <div class="lobby-actions">
           <button id="btn-create-room" disabled>建立房間</button>
           <div class="divider-text">或</div>
@@ -43,6 +51,15 @@
     <div class="waiting-container">
       <h2>房間 <span id="display-room-code"></span></h2>
       <div id="player-list" class="player-list"></div>
+      <div id="host-settings" style="display:none; margin-bottom: 1rem;">
+        <label for="win-score-select-waiting" style="color: var(--text-muted); font-size: 0.85rem;">勝利分數</label>
+        <select id="win-score-select-waiting" style="width: 100%; padding: 0.5rem; border-radius: var(--radius-sm); background: var(--bg); color: var(--text); border: 1px solid #333; margin-top: 0.3rem;">
+          <option value="3">3 分</option>
+          <option value="5" selected>5 分</option>
+          <option value="7">7 分</option>
+          <option value="10">10 分</option>
+        </select>
+      </div>
       <button id="btn-start-game" class="btn-primary" style="display:none;">開始遊戲</button>
       <p id="waiting-hint" class="hint">等待房主開始遊戲...</p>
     </div>
@@ -79,6 +96,7 @@
             <button id="btn-play" class="btn-play" disabled>▶ 播放</button>
             <div id="timer-display" class="timer-display">30s</div>
             <button id="btn-swap" class="btn-swap" style="display:none;">🔄 換歌 (-1 籌碼)</button>
+            <button id="btn-direct-score" class="btn-direct" style="display:none;">💰 直接得分 (-3 籌碼)</button>
           </div>
         </div>
 
