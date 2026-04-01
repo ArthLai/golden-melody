@@ -633,12 +633,16 @@ function setupTurnUI() {
     const directBtn = document.getElementById('btn-direct-score');
     if (directBtn) directBtn.style.display = currentPlayer.tokens >= 3 ? '' : 'none';
 
-    // Load video
+    // Load video — explicitly unmute for hero's turn
     hasSeekStarted = false;
     if (gameState.currentSong) {
       if (ytReady && !ytPlayer) {
         createYTPlayer(gameState.currentSong.youtubeId);
       } else if (ytPlayer) {
+        try {
+          ytPlayer.unMute();
+          ytPlayer.setVolume(100);
+        } catch (e) { /* ignore */ }
         ytPlayer.cueVideoById(gameState.currentSong.youtubeId);
       }
     }
@@ -947,7 +951,7 @@ function handleReveal(payload) {
   else if (payload.heroArtistCorrect && !payload.heroTitleCorrect) heroBadges.push('歌手對/歌名錯');
   else if (!payload.heroArtistCorrect && payload.heroTitleCorrect) heroBadges.push('歌名對/歌手錯');
   var heroClass = (payload.heroCorrect || payload.heroBothCorrect) ? 'result-correct' : 'result-wrong';
-  html += '<li>' + hero.name + ' (主角) <span class="' + heroClass + '">' + (heroBadges.length ? heroBadges.join(', ') : '年代錯誤') + '</span></li>';
+  html += '<li>' + hero.name + ' <span class="' + heroClass + '">' + (heroBadges.length ? heroBadges.join(', ') : '年代錯誤') + '</span></li>';
 
   // Bet results
   var betKeys = Object.keys(payload.betResults);
@@ -1540,7 +1544,8 @@ function renderBettingTimeline(heroTimeline, heroGapIndex) {
       // Show hero's selected gap as a non-clickable inverted marker
       var heroGap = document.createElement('div');
       heroGap.className = 'timeline-gap hero-selected';
-      heroGap.textContent = '主角\n已選';
+      var heroName = players[gameState.currentPlayerIndex] ? players[gameState.currentPlayerIndex].name : '???';
+      heroGap.textContent = heroName + '\n已選';
       container.appendChild(heroGap);
     } else {
       container.appendChild(createGapElement(i, true));
