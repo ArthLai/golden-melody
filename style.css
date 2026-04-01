@@ -307,6 +307,11 @@ input, select {
   color: var(--accent);
   font-weight: 600;
 }
+.win-score-label {
+  color: var(--success);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
 
 /* Scoreboard */
 .scoreboard {

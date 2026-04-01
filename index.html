@@ -39,9 +39,6 @@
           <option value="全部">全部</option>
         </select>
 
-        <label for="win-score-input">勝利分數</label>
-        <input type="number" id="win-score-input" value="5" min="1" max="99" placeholder="輸入分數...">
-
         <div class="lobby-actions">
           <button id="btn-create-room" disabled>建立房間</button>
           <div class="divider-text">或</div>
@@ -81,6 +78,7 @@
       <div class="timeline-panel">
         <div class="game-info-bar">
           <span id="current-turn-label">輪到：---</span>
+          <span id="win-score-label" class="win-score-label"></span>
           <span id="round-label">第 1 回合</span>
         </div>
         <div class="scoreboard" id="scoreboard"></div>

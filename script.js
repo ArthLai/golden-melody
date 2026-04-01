@@ -417,7 +417,7 @@ function handlePlayerList(list) {
 function startGame() {
   if (!isHost) return;
   var winEl = document.getElementById('win-score-input-waiting');
-  winScore = parseInt(winEl ? winEl.value : document.getElementById('win-score-input').value, 10) || 5;
+  winScore = parseInt(winEl ? winEl.value : '5', 10) || 5;
   if (winScore < 1) winScore = 1;
   gameState.phase = 'playing';
   gameState.currentPlayerIndex = 0;
@@ -506,6 +506,7 @@ function setupTurnUI() {
 
   document.getElementById('current-turn-label').textContent = `輪到：${currentPlayer.name}`;
   document.getElementById('round-label').textContent = `第 ${gameState.round} 回合`;
+  document.getElementById('win-score-label').textContent = `目標 ${winScore} 分`;
 
   renderScoreboard();
 
@@ -700,8 +701,10 @@ function triggerReveal() {
     capTokens(currentPlayer);
   }
 
-  // Insert song into hero's timeline
-  insertIntoTimeline(currentPlayer.timeline, gameState.heroPlacement.gapIndex, song);
+  // Only add song to hero's timeline if year placement was correct
+  if (heroCorrect) {
+    insertIntoTimeline(currentPlayer.timeline, gameState.heroPlacement.gapIndex, song);
+  }
 
   // Score bettors — use betOrder for first-submit priority
   var betResults = {};
@@ -725,6 +728,8 @@ function triggerReveal() {
       if (betPositionCorrect) {
         bettor.score += 1;
         bettor.tokens += 2; // net +1 profit
+        // Bettor who guessed correct position also gets the song on their timeline
+        insertIntoTimeline(bettor.timeline, 0, song); // insertIntoTimeline re-sorts
       }
     }
 
@@ -774,23 +779,23 @@ function handleReveal(payload) {
   renderTimeline('timeline', currentPlayer.timeline, false);
   renderScoreboard();
 
-  // Show reveal + YouTube video
-  document.getElementById('music-section').style.display = '';
+  // Show reveal; YouTube only for the hero player
+  var amHero = currentPlayer.id === myId;
   document.getElementById('guess-section').style.display = 'none';
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = '';
 
-  // Remove YT mask to reveal the video and play it
-  var mask = document.getElementById('yt-mask');
-  if (mask) mask.style.display = 'none';
-  // Hide playback controls during reveal
-  document.querySelector('.playback-controls').style.display = 'none';
-  // Load and play the revealed song (from beginning)
-  isRevealPlayback = true;
-  if (ytPlayer && payload.song && payload.song.youtubeId) {
-    try {
-      ytPlayer.loadVideoById(payload.song.youtubeId);
-    } catch (e) { /* ignore */ }
+  if (amHero) {
+    document.getElementById('music-section').style.display = '';
+    var mask = document.getElementById('yt-mask');
+    if (mask) mask.style.display = 'none';
+    document.querySelector('.playback-controls').style.display = 'none';
+    isRevealPlayback = true;
+    if (ytPlayer && payload.song && payload.song.youtubeId) {
+      try { ytPlayer.loadVideoById(payload.song.youtubeId); } catch (e) { /* ignore */ }
+    }
+  } else {
+    document.getElementById('music-section').style.display = 'none';
   }
 
   var html = '<div class="reveal-answer">';
@@ -992,19 +997,23 @@ function handleDirectScore(payload) {
   renderTimeline('timeline', currentPlayer.timeline, false);
   renderScoreboard();
 
-  // Show reveal + YouTube video
-  document.getElementById('music-section').style.display = '';
+  // Show reveal; YouTube only for the hero player
+  var amHero = currentPlayer.id === myId;
   document.getElementById('guess-section').style.display = 'none';
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = '';
 
-  // Remove mask, hide controls, play video
-  var mask = document.getElementById('yt-mask');
-  if (mask) mask.style.display = 'none';
-  document.querySelector('.playback-controls').style.display = 'none';
-  isRevealPlayback = true;
-  if (ytPlayer && payload.song && payload.song.youtubeId) {
-    try { ytPlayer.loadVideoById(payload.song.youtubeId); } catch (e) { /* ignore */ }
+  if (amHero) {
+    document.getElementById('music-section').style.display = '';
+    var mask = document.getElementById('yt-mask');
+    if (mask) mask.style.display = 'none';
+    document.querySelector('.playback-controls').style.display = 'none';
+    isRevealPlayback = true;
+    if (ytPlayer && payload.song && payload.song.youtubeId) {
+      try { ytPlayer.loadVideoById(payload.song.youtubeId); } catch (e) { /* ignore */ }
+    }
+  } else {
+    document.getElementById('music-section').style.display = 'none';
   }
 
   var scorer = players.find(function(p) { return p.id === payload.playerId; });
