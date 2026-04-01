@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>金曲猜歌王</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <!-- ===== 大廳畫面 ===== -->
+  <div id="screen-lobby" class="screen active">
+    <div class="lobby-container">
+      <h1 class="game-title">金曲猜歌王</h1>
+      <p class="subtitle">多人連線猜歌桌遊</p>
+
+      <div class="lobby-card">
+        <label for="player-name">你的暱稱</label>
+        <input type="text" id="player-name" placeholder="輸入暱稱..." maxlength="10">
+
+        <label for="lang-select">歌曲語言</label>
+        <select id="lang-select">
+          <option value="全部">全部</option>
+        </select>
+
+        <div class="lobby-actions">
+          <button id="btn-create-room" disabled>建立房間</button>
+          <div class="divider-text">或</div>
+          <div class="join-row">
+            <input type="text" id="room-code-input" placeholder="輸入房間代碼" maxlength="6">
+            <button id="btn-join-room" disabled>加入房間</button>
+          </div>
+        </div>
+
+        <div id="loading-status" class="loading-status">正在載入題庫...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 等待室畫面 ===== -->
+  <div id="screen-waiting" class="screen">
+    <div class="waiting-container">
+      <h2>房間 <span id="display-room-code"></span></h2>
+      <div id="player-list" class="player-list"></div>
+      <button id="btn-start-game" class="btn-primary" style="display:none;">開始遊戲</button>
+      <p id="waiting-hint" class="hint">等待房主開始遊戲...</p>
+    </div>
+  </div>
+
+  <!-- ===== 遊戲主畫面 ===== -->
+  <div id="screen-game" class="screen">
+    <div class="game-layout">
+
+      <!-- 左側 / 上方：時間軸 -->
+      <div class="timeline-panel">
+        <div class="game-info-bar">
+          <span id="current-turn-label">輪到：---</span>
+          <span id="round-label">第 1 回合</span>
+        </div>
+        <div class="scoreboard" id="scoreboard"></div>
+        <h3 class="timeline-title" id="timeline-owner-label">我的時間軸</h3>
+        <div id="timeline" class="timeline"></div>
+      </div>
+
+      <!-- 右側 / 下方：操作區 -->
+      <div class="control-panel">
+        <!-- 音樂播放區 -->
+        <div id="music-section" class="music-section">
+          <div class="player-wrapper">
+            <div id="yt-player-container">
+              <div id="yt-player"></div>
+              <div id="yt-mask" class="yt-mask">
+                <span class="mask-icon">🎵</span>
+              </div>
+            </div>
+          </div>
+          <div class="playback-controls">
+            <button id="btn-play" class="btn-play" disabled>▶ 播放</button>
+            <div id="timer-display" class="timer-display">30s</div>
+            <button id="btn-swap" class="btn-swap" style="display:none;">🔄 換歌 (-1 籌碼)</button>
+          </div>
+        </div>
+
+        <!-- 猜題區 -->
+        <div id="guess-section" class="guess-section" style="display:none;">
+          <h3>猜測 (可選)</h3>
+          <input type="text" id="guess-artist" placeholder="猜歌手...">
+          <input type="text" id="guess-title" placeholder="猜歌名...">
+          <button id="btn-submit-placement" class="btn-primary" disabled>確認放置</button>
+        </div>
+
+        <!-- 下注區 (其他玩家) -->
+        <div id="betting-section" class="betting-section" style="display:none;">
+          <h3>下注階段</h3>
+          <p class="bet-hint">選擇你認為正確的年代位置 (-1 籌碼)</p>
+          <div id="bet-timeline" class="timeline betting-timeline"></div>
+          <div class="bet-guess-row">
+            <input type="text" id="bet-guess-artist" placeholder="搶答歌手...">
+            <input type="text" id="bet-guess-title" placeholder="搶答歌名...">
+          </div>
+          <button id="btn-submit-bet" class="btn-primary" disabled>確認下注</button>
+        </div>
+
+        <!-- 結算區 -->
+        <div id="reveal-section" class="reveal-section" style="display:none;">
+          <div id="reveal-content"></div>
+          <button id="btn-next-round" class="btn-primary" style="display:none;">下一回合</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
