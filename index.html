@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
   <title>金曲猜歌王</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -84,6 +84,10 @@
         <div class="scoreboard" id="scoreboard"></div>
         <h3 class="timeline-title" id="timeline-owner-label">我的時間軸</h3>
         <div id="timeline" class="timeline"></div>
+        <div id="my-timeline-section" style="display:none;">
+          <h3 class="timeline-title" id="my-timeline-label">我的時間軸</h3>
+          <div id="my-timeline" class="timeline"></div>
+        </div>
       </div>
 
       <!-- 右側 / 下方：操作區 -->
@@ -107,6 +111,13 @@
           </div>
         </div>
 
+        <!-- 階段倒計時 -->
+        <div id="phase-timer-bar" class="phase-timer-bar" style="display:none;">
+          <span>剩餘時間</span>
+          <div class="phase-timer-progress"><div id="phase-timer-fill" class="phase-timer-fill"></div></div>
+          <span id="phase-timer-count" class="phase-timer-count">60s</span>
+        </div>
+
         <!-- 猜題區 -->
         <div id="guess-section" class="guess-section" style="display:none;">
           <h3>放置 &amp; 猜歌</h3>
@@ -119,7 +130,7 @@
         <!-- 下注區 (其他玩家) -->
         <div id="betting-section" class="betting-section" style="display:none;">
           <h3>下注 &amp; 搶答</h3>
-          <p class="bet-hint">選擇年代位置下注 (-1 籌碼)，或直接提交猜歌手/歌名</p>
+          <p class="bet-hint">選擇年代位置下注 (-1 籌碼)，再點一次可取消。也可直接猜歌手/歌名</p>
           <p class="section-hint">猜歌手＋歌名皆對 → +1 籌碼（僅最快提交者獲得）</p>
           <div id="bet-timeline" class="timeline betting-timeline"></div>
           <div class="bet-guess-row">

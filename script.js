@@ -12,6 +12,7 @@ var CONFIG = {
   PLAYBACK_SECONDS: 30,
   INITIAL_TOKENS: 2,
   MAX_TOKENS: 5,
+  PHASE_SECONDS: 60,
 };
 
 // --------------- Global State ---------------
@@ -52,6 +53,11 @@ var gameState = {
 // UI selection state
 var selectedGapIndex = null;
 var betSelectedGapIndex = null;
+
+// Phase timer
+var phaseTimer = null;
+var phaseSecondsLeft = 0;
+var phaseTimerTotal = 0;
 
 // ============================================================
 // A. DATA MODULE — Google Sheet loader
@@ -263,6 +269,15 @@ function handleSyncMessage(payload) {
     case 'sudden_death':
       handleSuddenDeath(payload);
       break;
+    case 'game_sync':
+      handleGameSync(payload);
+      break;
+    case 'player_rejoin':
+      handlePlayerRejoin(payload);
+      break;
+    case 'rejoin_state':
+      handleRejoinState(payload);
+      break;
   }
 }
 
@@ -315,6 +330,44 @@ function createYTPlayer(videoId) {
   });
 }
 
+// Ensure YT player exists and load reveal video (hero=sound, others=muted)
+function ensureYTPlayerForReveal(song, amHero) {
+  if (!song || !song.youtubeId) return;
+  function loadAndSetVolume() {
+    try {
+      if (amHero) {
+        ytPlayer.unMute();
+        ytPlayer.setVolume(100);
+      } else {
+        ytPlayer.mute();
+      }
+      ytPlayer.loadVideoById(song.youtubeId);
+    } catch (e) { /* ignore */ }
+  }
+  if (ytPlayer) {
+    loadAndSetVolume();
+  } else if (typeof YT !== 'undefined' && YT.Player) {
+    // Create player for non-hero who didn't have one yet
+    ytPlayer = new YT.Player('yt-player', {
+      height: '100%',
+      width: '100%',
+      playerVars: {
+        autoplay: 1,
+        controls: 0,
+        disablekb: 1,
+        modestbranding: 1,
+        rel: 0,
+      },
+      events: {
+        onReady: function() {
+          loadAndSetVolume();
+        },
+        onStateChange: onPlayerStateChange,
+      },
+    });
+  }
+}
+
 var hasSeekStarted = false;
 var isRevealPlayback = false;
 var currentRandomStart = 0;  // store the random start position for replay
@@ -360,6 +413,13 @@ function startPlaybackTimer() {
   }, 1000);
   // Also unlock guess section immediately when music plays
   unlockGuessSection();
+
+  // Start 60s phase timer for hero placing
+  startPhaseTimer(CONFIG.PHASE_SECONDS, function() {
+    // Auto-submit: if no gap selected, pick gap 0
+    if (selectedGapIndex === null) selectedGapIndex = 0;
+    submitPlacement();
+  });
 }
 
 function updateTimerDisplay() {
@@ -388,17 +448,49 @@ function handlePlayerJoin(player) {
   if (isHost && player.id !== myId) {
     // Add to local list if new
     if (!players.find(p => p.id === player.id)) {
-      players.push({
+      var newPlayer = {
         id: player.id,
         name: player.name,
         isHost: player.isHost,
         score: 0,
         tokens: CONFIG.INITIAL_TOKENS,
         timeline: [],
-      });
+      };
+
+      // If game is already in progress, give them an initial timeline card
+      if (gameState.phase !== 'waiting') {
+        var pool = getFilteredSongs().filter(function(s) {
+          return !gameState.usedSongIds.includes(s.youtubeId);
+        });
+        if (pool.length > 0) {
+          var idx = Math.floor(Math.random() * pool.length);
+          var initSong = pool[idx];
+          newPlayer.timeline = [{ artist: initSong.artist, title: initSong.title, year: initSong.year }];
+          gameState.usedSongIds.push(initSong.youtubeId);
+        }
+      }
+
+      players.push(newPlayer);
     }
     // Broadcast full list
     broadcastSync({ type: 'player_list', players });
+
+    // If game is in progress, also send game state so late joiner can catch up
+    if (gameState.phase !== 'waiting') {
+      broadcastSync({
+        type: 'game_sync',
+        players: players,
+        winScore: winScore,
+        gameState: {
+          phase: gameState.phase,
+          currentPlayerIndex: gameState.currentPlayerIndex,
+          round: gameState.round,
+          currentSong: gameState.currentSong,
+          heroPlacement: gameState.heroPlacement,
+          usedSongIds: gameState.usedSongIds,
+        },
+      });
+    }
   }
   renderWaitingRoom();
 }
@@ -476,6 +568,7 @@ function handleGameStart(payload) {
 
 // --- New turn ---
 function handleNewTurn(payload) {
+  stopPhaseTimer();
   gameState.currentPlayerIndex = payload.currentPlayerIndex;
   gameState.round = payload.round;
   gameState.phase = 'playing';
@@ -516,10 +609,14 @@ function setupTurnUI() {
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = 'none';
 
+  // Always stop phase timer on new turn
+  stopPhaseTimer();
+
   if (amHero) {
     // Hero view
     document.getElementById('timeline-owner-label').textContent = '我的時間軸';
     renderTimeline('timeline', currentPlayer.timeline, true);
+    document.getElementById('my-timeline-section').style.display = 'none';
     document.getElementById('btn-play').disabled = false;
     document.getElementById('btn-replay').style.display = 'none';
     document.getElementById('btn-submit-placement').disabled = true;
@@ -549,8 +646,18 @@ function setupTurnUI() {
     selectedGapIndex = null;
   } else {
     // Spectator: show hero's timeline (read-only) while waiting
-    document.getElementById('timeline-owner-label').textContent = `${currentPlayer.name} 的時間軸`;
+    document.getElementById('timeline-owner-label').textContent = currentPlayer.name + ' 的時間軸';
     renderTimeline('timeline', currentPlayer.timeline, false);
+
+    // Always show my own timeline
+    var me = players.find(function(p) { return p.id === myId; });
+    var mySection = document.getElementById('my-timeline-section');
+    if (me && mySection) {
+      mySection.style.display = '';
+      document.getElementById('my-timeline-label').textContent = '我的時間軸';
+      renderTimeline('my-timeline', me.timeline, false);
+    }
+
     // Show waiting message
     document.getElementById('guess-section').style.display = 'none';
   }
@@ -559,6 +666,7 @@ function setupTurnUI() {
 // --- Hero submits placement ---
 function submitPlacement() {
   if (selectedGapIndex === null) return;
+  stopPhaseTimer();
   const placement = {
     gapIndex: selectedGapIndex,
     guessArtist: document.getElementById('guess-artist').value.trim(),
@@ -580,6 +688,7 @@ function handleHeroSubmitted(payload) {
   gameState.heroPlacement = payload.placement;
   gameState.phase = 'betting';
   stopPlayback();
+  stopPhaseTimer();
 
   const currentPlayer = players[gameState.currentPlayerIndex];
   const amHero = currentPlayer.id === myId;
@@ -601,13 +710,20 @@ function handleHeroSubmitted(payload) {
         setTimeout(function() { triggerReveal(); }, 500);
       }
     }
+
+    // Host: start 60s betting countdown; auto-reveal if timer expires
+    if (isHost) {
+      startPhaseTimer(CONFIG.PHASE_SECONDS, function() {
+        triggerReveal();
+      });
+    }
   } else {
     // Spectator enters betting mode
     document.getElementById('music-section').style.display = 'none';
     document.getElementById('betting-section').style.display = '';
     document.getElementById('reveal-section').style.display = 'none';
 
-    // Render betting timeline: hero's timeline with gaps EXCEPT the one hero chose
+    // Render betting timeline: hero's timeline with hero's chosen gap shown as special marker
     const heroTimeline = currentPlayer.timeline;
     renderBettingTimeline(heroTimeline, payload.placement.gapIndex);
 
@@ -620,13 +736,28 @@ function handleHeroSubmitted(payload) {
     if (me && me.tokens < 1) {
       document.querySelector('.bet-hint').textContent = '籌碼不足，無法下注位置（可猜歌手/歌名）';
     } else {
-      document.querySelector('.bet-hint').textContent = '選擇年代位置下注 (-1 籌碼)，或直接提交猜歌手/歌名';
+      document.querySelector('.bet-hint').textContent = '選擇年代位置下注 (-1 籌碼)，再點一次可取消。也可直接猜歌手/歌名';
+    }
+
+    // Start 60s betting timer; auto-submit when expires
+    startPhaseTimer(CONFIG.PHASE_SECONDS, function() {
+      var btn = document.getElementById('btn-submit-bet');
+      if (btn && !btn.disabled) submitBet();
+    });
+
+    // Also render my timeline in spectator view
+    var myPlayer = players.find(function(p) { return p.id === myId; });
+    var mySection = document.getElementById('my-timeline-section');
+    if (myPlayer && mySection) {
+      mySection.style.display = '';
+      renderTimeline('my-timeline', myPlayer.timeline, false);
     }
   }
 }
 
 // --- Betting ---
 function submitBet() {
+  stopPhaseTimer();
   const me = players.find(p => p.id === myId);
   if (!me) return;
 
@@ -773,30 +904,34 @@ function triggerReveal() {
 function handleReveal(payload) {
   gameState.phase = 'reveal';
   players = payload.players;
+  stopPhaseTimer();
 
   // Update timeline display
   var currentPlayer = players[gameState.currentPlayerIndex];
   renderTimeline('timeline', currentPlayer.timeline, false);
   renderScoreboard();
 
-  // Show reveal; YouTube only for the hero player
+  // Update my timeline
+  var me = players.find(function(p) { return p.id === myId; });
+  var mySection = document.getElementById('my-timeline-section');
+  if (me && mySection && currentPlayer.id !== myId) {
+    mySection.style.display = '';
+    renderTimeline('my-timeline', me.timeline, false);
+  }
+
+  // Show reveal; YouTube for ALL players (hero with sound, others muted)
   var amHero = currentPlayer.id === myId;
   document.getElementById('guess-section').style.display = 'none';
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = '';
 
-  if (amHero) {
-    document.getElementById('music-section').style.display = '';
-    var mask = document.getElementById('yt-mask');
-    if (mask) mask.style.display = 'none';
-    document.querySelector('.playback-controls').style.display = 'none';
-    isRevealPlayback = true;
-    if (ytPlayer && payload.song && payload.song.youtubeId) {
-      try { ytPlayer.loadVideoById(payload.song.youtubeId); } catch (e) { /* ignore */ }
-    }
-  } else {
-    document.getElementById('music-section').style.display = 'none';
-  }
+  // Show YouTube to everyone
+  document.getElementById('music-section').style.display = '';
+  var mask = document.getElementById('yt-mask');
+  if (mask) mask.style.display = 'none';
+  document.querySelector('.playback-controls').style.display = 'none';
+  isRevealPlayback = true;
+  ensureYTPlayerForReveal(payload.song, amHero);
 
   var html = '<div class="reveal-answer">';
   html += '<div class="answer-song">' + payload.song.artist + ' — ' + payload.song.title + '</div>';
@@ -937,6 +1072,7 @@ function handleSwapSong(payload) {
 function handleGameOver(payload) {
   players = payload.players || players;
   gameState.phase = 'gameover';
+  stopPhaseTimer();
   renderScoreboard();
 
   document.getElementById('music-section').style.display = 'none';
@@ -991,30 +1127,26 @@ function directScore() {
 function handleDirectScore(payload) {
   players = payload.players || players;
   gameState.phase = 'reveal';
+  stopPhaseTimer();
 
   // Update timeline display
   var currentPlayer = players[gameState.currentPlayerIndex];
   renderTimeline('timeline', currentPlayer.timeline, false);
   renderScoreboard();
 
-  // Show reveal; YouTube only for the hero player
+  // Show reveal; YouTube for ALL players (hero with sound, others muted)
   var amHero = currentPlayer.id === myId;
   document.getElementById('guess-section').style.display = 'none';
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = '';
 
-  if (amHero) {
-    document.getElementById('music-section').style.display = '';
-    var mask = document.getElementById('yt-mask');
-    if (mask) mask.style.display = 'none';
-    document.querySelector('.playback-controls').style.display = 'none';
-    isRevealPlayback = true;
-    if (ytPlayer && payload.song && payload.song.youtubeId) {
-      try { ytPlayer.loadVideoById(payload.song.youtubeId); } catch (e) { /* ignore */ }
-    }
-  } else {
-    document.getElementById('music-section').style.display = 'none';
-  }
+  // Show YouTube to everyone
+  document.getElementById('music-section').style.display = '';
+  var mask = document.getElementById('yt-mask');
+  if (mask) mask.style.display = 'none';
+  document.querySelector('.playback-controls').style.display = 'none';
+  isRevealPlayback = true;
+  ensureYTPlayerForReveal(payload.song, amHero);
 
   var scorer = players.find(function(p) { return p.id === payload.playerId; });
   var html = '<div class="reveal-answer">';
@@ -1027,6 +1159,162 @@ function handleDirectScore(payload) {
 
   document.getElementById('reveal-content').innerHTML = html;
   document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
+}
+
+// --- Late join / Game sync ---
+function handleGameSync(payload) {
+  // Only process if I'm not the host and I'm still in waiting screen
+  if (isHost) return;
+  players = payload.players.map(function(p) {
+    return {
+      ...p,
+      timeline: p.timeline || [],
+      score: p.score || 0,
+      tokens: p.tokens ?? CONFIG.INITIAL_TOKENS,
+    };
+  });
+  winScore = payload.winScore || 5;
+  gameState = {
+    ...payload.gameState,
+    betOrder: [],
+    bets: {},
+  };
+
+  // Switch to game screen as a spectator
+  showScreen('screen-game');
+  var currentPlayer = players[gameState.currentPlayerIndex];
+  document.getElementById('current-turn-label').textContent = '輪到：' + currentPlayer.name;
+  document.getElementById('round-label').textContent = '第 ' + gameState.round + ' 回合';
+  document.getElementById('win-score-label').textContent = '目標 ' + winScore + ' 分';
+  renderScoreboard();
+  document.getElementById('timeline-owner-label').textContent = currentPlayer.name + ' 的時間軸';
+  renderTimeline('timeline', currentPlayer.timeline, false);
+  // Hide all control sections until next turn
+  document.getElementById('music-section').style.display = 'none';
+  document.getElementById('guess-section').style.display = 'none';
+  document.getElementById('betting-section').style.display = 'none';
+  document.getElementById('reveal-section').style.display = '';
+  document.getElementById('reveal-content').innerHTML = '<h3>等待本回合結束...</h3>';
+  document.getElementById('btn-next-round').style.display = 'none';
+}
+
+// --- Player disconnect handling ---
+// Supabase presence doesn't auto-track disconnects, so we handle it
+// by keeping disconnected players' data intact but skipping their turn
+function isPlayerActive(playerId) {
+  // For now, all players are considered active (their data is preserved)
+  // Disconnected players simply don't submit; host auto-skips after timeout
+  return true;
+}
+
+// --- Session persistence for reconnection ---
+function saveSession() {
+  try {
+    localStorage.setItem('gm_session', JSON.stringify({
+      myId: myId,
+      myName: myName,
+      roomCode: roomCode,
+      isHost: isHost,
+      timestamp: Date.now(),
+    }));
+  } catch (e) { /* ignore */ }
+}
+
+function clearSession() {
+  try { localStorage.removeItem('gm_session'); } catch (e) { /* ignore */ }
+}
+
+function getSavedSession() {
+  try {
+    var raw = localStorage.getItem('gm_session');
+    if (!raw) return null;
+    var s = JSON.parse(raw);
+    // Expire after 2 hours
+    if (Date.now() - s.timestamp > 2 * 60 * 60 * 1000) {
+      clearSession();
+      return null;
+    }
+    return s;
+  } catch (e) { return null; }
+}
+
+// Host receives rejoin request and sends full state to that player
+function handlePlayerRejoin(payload) {
+  if (!isHost) return;
+  var rejoinId = payload.playerId;
+  var existing = players.find(function(p) { return p.id === rejoinId; });
+  if (!existing) return; // unknown player, ignore
+
+  // Send full game state targeted to this player
+  broadcastSync({
+    type: 'rejoin_state',
+    targetId: rejoinId,
+    players: players,
+    winScore: winScore,
+    gameState: {
+      phase: gameState.phase,
+      currentPlayerIndex: gameState.currentPlayerIndex,
+      round: gameState.round,
+      currentSong: gameState.currentSong,
+      heroPlacement: gameState.heroPlacement,
+      usedSongIds: gameState.usedSongIds,
+    },
+  });
+}
+
+// Rejoining player receives full state
+function handleRejoinState(payload) {
+  if (payload.targetId !== myId) return; // not for me
+
+  players = payload.players.map(function(p) {
+    return {
+      ...p,
+      timeline: p.timeline || [],
+      score: p.score || 0,
+      tokens: p.tokens ?? CONFIG.INITIAL_TOKENS,
+    };
+  });
+  winScore = payload.winScore || 5;
+  gameState = {
+    ...payload.gameState,
+    betOrder: [],
+    bets: {},
+  };
+
+  // Determine if game hasn't started yet
+  if (gameState.phase === 'waiting') {
+    showScreen('screen-waiting');
+    document.getElementById('display-room-code').textContent = roomCode;
+    generateQRCode(roomCode);
+    renderWaitingRoom();
+    return;
+  }
+
+  // Switch to game screen
+  showScreen('screen-game');
+  var currentPlayer = players[gameState.currentPlayerIndex];
+  document.getElementById('current-turn-label').textContent = '輪到：' + currentPlayer.name;
+  document.getElementById('round-label').textContent = '第 ' + gameState.round + ' 回合';
+  document.getElementById('win-score-label').textContent = '目標 ' + winScore + ' 分';
+  renderScoreboard();
+  document.getElementById('timeline-owner-label').textContent = currentPlayer.name + ' 的時間軸';
+  renderTimeline('timeline', currentPlayer.timeline, false);
+
+  // Show own timeline
+  var me = players.find(function(p) { return p.id === myId; });
+  var mySection = document.getElementById('my-timeline-section');
+  if (me && mySection && currentPlayer.id !== myId) {
+    mySection.style.display = '';
+    renderTimeline('my-timeline', me.timeline, false);
+  }
+
+  // Hide controls; wait for next turn event
+  document.getElementById('music-section').style.display = 'none';
+  document.getElementById('guess-section').style.display = 'none';
+  document.getElementById('betting-section').style.display = 'none';
+  document.getElementById('reveal-section').style.display = '';
+  document.getElementById('reveal-content').innerHTML = '<h3>已重新連線，等待下一回合...</h3>';
+  document.getElementById('btn-next-round').style.display = 'none';
 }
 
 // ============================================================
@@ -1070,6 +1358,49 @@ function normalizeGuess(str) {
   // Remove everything except letters, digits, CJK unified ideographs, kana, hangul, bopomofo
   s = s.replace(/[^a-z0-9\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u3100-\u312f]/g, '');
   return s;
+}
+
+// ============================================================
+// E2. PHASE TIMER
+// ============================================================
+function startPhaseTimer(seconds, onExpire) {
+  stopPhaseTimer();
+  phaseSecondsLeft = seconds;
+  phaseTimerTotal = seconds;
+  var bar = document.getElementById('phase-timer-bar');
+  if (bar) bar.style.display = '';
+  renderPhaseTimer();
+
+  phaseTimer = setInterval(function() {
+    phaseSecondsLeft--;
+    renderPhaseTimer();
+    if (phaseSecondsLeft <= 0) {
+      stopPhaseTimer();
+      if (typeof onExpire === 'function') onExpire();
+    }
+  }, 1000);
+}
+
+function stopPhaseTimer() {
+  clearInterval(phaseTimer);
+  phaseTimer = null;
+  var bar = document.getElementById('phase-timer-bar');
+  if (bar) bar.style.display = 'none';
+}
+
+function renderPhaseTimer() {
+  var countEl = document.getElementById('phase-timer-count');
+  var fillEl = document.getElementById('phase-timer-fill');
+  var bar = document.getElementById('phase-timer-bar');
+  if (countEl) countEl.textContent = phaseSecondsLeft + 's';
+  if (fillEl) fillEl.style.width = (phaseSecondsLeft / phaseTimerTotal * 100) + '%';
+  if (bar) {
+    if (phaseSecondsLeft <= 10) {
+      bar.classList.add('urgent');
+    } else {
+      bar.classList.remove('urgent');
+    }
+  }
 }
 
 // ============================================================
@@ -1175,11 +1506,17 @@ function createGapElement(gapIndex, isBet) {
   gap.textContent = '+';
   gap.addEventListener('click', () => {
     if (isBet) {
-      betSelectedGapIndex = gapIndex;
-      document.querySelectorAll('#bet-timeline .timeline-gap').forEach(g => g.classList.remove('bet-selected'));
-      gap.classList.add('bet-selected');
-      const me = players.find(p => p.id === myId);
-      document.getElementById('btn-submit-bet').disabled = !(me && me.tokens >= 1);
+      // Toggle: click same gap again to deselect
+      if (betSelectedGapIndex === gapIndex) {
+        betSelectedGapIndex = null;
+        gap.classList.remove('bet-selected');
+      } else {
+        betSelectedGapIndex = gapIndex;
+        document.querySelectorAll('#bet-timeline .timeline-gap').forEach(g => g.classList.remove('bet-selected'));
+        gap.classList.add('bet-selected');
+      }
+      // Always allow submit (can submit guess-only without position bet)
+      document.getElementById('btn-submit-bet').disabled = false;
     } else {
       selectedGapIndex = gapIndex;
       document.querySelectorAll('#timeline .timeline-gap').forEach(g => g.classList.remove('selected'));
@@ -1197,9 +1534,15 @@ function renderBettingTimeline(heroTimeline, heroGapIndex) {
   const container = document.getElementById('bet-timeline');
   container.innerHTML = '';
 
-  // Show timeline with all gaps EXCEPT the one the hero chose
+  // Show timeline with all gaps; hero's chosen gap shown as inverted marker
   for (let i = 0; i <= heroTimeline.length; i++) {
-    if (i !== heroGapIndex) {
+    if (i === heroGapIndex) {
+      // Show hero's selected gap as a non-clickable inverted marker
+      var heroGap = document.createElement('div');
+      heroGap.className = 'timeline-gap hero-selected';
+      heroGap.textContent = '主角\n已選';
+      container.appendChild(heroGap);
+    } else {
       container.appendChild(createGapElement(i, true));
     }
 
@@ -1239,6 +1582,7 @@ function initEventListeners() {
     showScreen('screen-waiting');
     generateQRCode(roomCode);
     joinChannel(roomCode);
+    saveSession();
     renderWaitingRoom();
   });
 
@@ -1268,6 +1612,7 @@ function initEventListeners() {
     showScreen('screen-waiting');
     generateQRCode(roomCode);
     joinChannel(roomCode);
+    saveSession();
     renderWaitingRoom();
   });
 
@@ -1323,6 +1668,35 @@ function initApp() {
   var roomParam = params.get('room');
   if (roomParam) {
     document.getElementById('room-code-input').value = roomParam.toUpperCase();
+  }
+
+  // Attempt to rejoin saved session
+  var saved = getSavedSession();
+  if (saved && saved.myId && saved.roomCode) {
+    myId = saved.myId;
+    myName = saved.myName;
+    roomCode = saved.roomCode;
+    isHost = false; // reconnecting player is never host (host state is authoritative)
+
+    document.getElementById('player-name').value = myName;
+    document.getElementById('display-room-code').textContent = roomCode;
+
+    // Join the channel and request rejoin
+    channel = supabaseClient.channel('room-' + roomCode, {
+      config: { broadcast: { self: true } },
+    });
+    channel.on('broadcast', { event: 'sync' }, function(msg) {
+      handleSyncMessage(msg.payload);
+    });
+    channel.subscribe(function(status) {
+      if (status === 'SUBSCRIBED') {
+        broadcastSync({
+          type: 'player_rejoin',
+          playerId: myId,
+          playerName: myName,
+        });
+      }
+    });
   }
 }
 
