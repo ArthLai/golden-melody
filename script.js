@@ -1224,6 +1224,17 @@ function saveSession() {
   } catch (e) { /* ignore */ }
 }
 
+// Update timestamp to keep session alive
+function touchSession() {
+  try {
+    var raw = localStorage.getItem('gm_session');
+    if (!raw) return;
+    var s = JSON.parse(raw);
+    s.timestamp = Date.now();
+    localStorage.setItem('gm_session', JSON.stringify(s));
+  } catch (e) { /* ignore */ }
+}
+
 function clearSession() {
   try { localStorage.removeItem('gm_session'); } catch (e) { /* ignore */ }
 }
@@ -1249,10 +1260,14 @@ function handlePlayerRejoin(payload) {
   var existing = players.find(function(p) { return p.id === rejoinId; });
   if (!existing) return; // unknown player, ignore
 
+  // Check if the rejoining player was originally the host
+  var wasHost = existing.isHost || false;
+
   // Send full game state targeted to this player
   broadcastSync({
     type: 'rejoin_state',
     targetId: rejoinId,
+    wasHost: wasHost,
     players: players,
     winScore: winScore,
     gameState: {
@@ -1270,6 +1285,11 @@ function handlePlayerRejoin(payload) {
 function handleRejoinState(payload) {
   if (payload.targetId !== myId) return; // not for me
 
+  // Restore host status if this player was originally the host
+  if (payload.wasHost) {
+    isHost = true;
+  }
+
   players = payload.players.map(function(p) {
     return {
       ...p,
@@ -1281,8 +1301,8 @@ function handleRejoinState(payload) {
   winScore = payload.winScore || 5;
   gameState = {
     ...payload.gameState,
-    betOrder: [],
-    bets: {},
+    betOrder: gameState.betOrder || [],
+    bets: gameState.bets || {},
   };
 
   // Determine if game hasn't started yet
@@ -1296,29 +1316,58 @@ function handleRejoinState(payload) {
 
   // Switch to game screen
   showScreen('screen-game');
+  loadYouTubeAPI(); // ensure YT API is loaded
+
   var currentPlayer = players[gameState.currentPlayerIndex];
+  var amHero = currentPlayer.id === myId;
+
   document.getElementById('current-turn-label').textContent = '輪到：' + currentPlayer.name;
   document.getElementById('round-label').textContent = '第 ' + gameState.round + ' 回合';
   document.getElementById('win-score-label').textContent = '目標 ' + winScore + ' 分';
   renderScoreboard();
-  document.getElementById('timeline-owner-label').textContent = currentPlayer.name + ' 的時間軸';
-  renderTimeline('timeline', currentPlayer.timeline, false);
 
-  // Show own timeline
-  var me = players.find(function(p) { return p.id === myId; });
-  var mySection = document.getElementById('my-timeline-section');
-  if (me && mySection && currentPlayer.id !== myId) {
-    mySection.style.display = '';
-    renderTimeline('my-timeline', me.timeline, false);
+  if (amHero && (gameState.phase === 'playing' || gameState.phase === 'placing')) {
+    // It's my turn — restore full hero UI
+    setupTurnUI();
+  } else if (!amHero && gameState.phase === 'betting' && gameState.heroPlacement) {
+    // Betting phase — let me bet
+    document.getElementById('timeline-owner-label').textContent = currentPlayer.name + ' 的時間軸';
+    renderTimeline('timeline', currentPlayer.timeline, false);
+    document.getElementById('music-section').style.display = 'none';
+    document.getElementById('guess-section').style.display = 'none';
+    document.getElementById('betting-section').style.display = '';
+    document.getElementById('reveal-section').style.display = 'none';
+    renderBettingTimeline(currentPlayer.timeline, gameState.heroPlacement.gapIndex);
+
+    // Show own timeline
+    var me = players.find(function(p) { return p.id === myId; });
+    var mySection = document.getElementById('my-timeline-section');
+    if (me && mySection) {
+      mySection.style.display = '';
+      renderTimeline('my-timeline', me.timeline, false);
+    }
+  } else {
+    // Other phases or spectating — show current state and wait
+    document.getElementById('timeline-owner-label').textContent = currentPlayer.name + ' 的時間軸';
+    renderTimeline('timeline', currentPlayer.timeline, false);
+
+    // Show own timeline
+    var me2 = players.find(function(p) { return p.id === myId; });
+    var mySection2 = document.getElementById('my-timeline-section');
+    if (me2 && mySection2 && !amHero) {
+      mySection2.style.display = '';
+      renderTimeline('my-timeline', me2.timeline, false);
+    }
+
+    document.getElementById('music-section').style.display = 'none';
+    document.getElementById('guess-section').style.display = 'none';
+    document.getElementById('betting-section').style.display = 'none';
+    document.getElementById('reveal-section').style.display = '';
+    document.getElementById('reveal-content').innerHTML = '<h3>已重新連線，等待下一回合...</h3>';
+    document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
   }
 
-  // Hide controls; wait for next turn event
-  document.getElementById('music-section').style.display = 'none';
-  document.getElementById('guess-section').style.display = 'none';
-  document.getElementById('betting-section').style.display = 'none';
-  document.getElementById('reveal-section').style.display = '';
-  document.getElementById('reveal-content').innerHTML = '<h3>已重新連線，等待下一回合...</h3>';
-  document.getElementById('btn-next-round').style.display = 'none';
+  saveSession(); // refresh session timestamp
 }
 
 // ============================================================
@@ -1681,28 +1730,62 @@ function initApp() {
     myId = saved.myId;
     myName = saved.myName;
     roomCode = saved.roomCode;
-    isHost = false; // reconnecting player is never host (host state is authoritative)
+    isHost = saved.isHost || false;
 
     document.getElementById('player-name').value = myName;
     document.getElementById('display-room-code').textContent = roomCode;
 
-    // Join the channel and request rejoin
-    channel = supabaseClient.channel('room-' + roomCode, {
-      config: { broadcast: { self: true } },
-    });
-    channel.on('broadcast', { event: 'sync' }, function(msg) {
-      handleSyncMessage(msg.payload);
-    });
-    channel.subscribe(function(status) {
-      if (status === 'SUBSCRIBED') {
-        broadcastSync({
-          type: 'player_rejoin',
-          playerId: myId,
-          playerName: myName,
-        });
-      }
-    });
+    // Show reconnecting notice
+    var loadingEl = document.getElementById('loading-status');
+    if (loadingEl) {
+      loadingEl.textContent = '正在重新連線到房間 ' + roomCode + '...';
+      loadingEl.style.display = '';
+    }
+
+    attemptRejoin();
   }
+
+  // Detect app resume (mobile tab switch / screen lock)
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && roomCode && myId) {
+      touchSession();
+      // Check if channel is still alive; if not, reconnect
+      if (!channel || channel.state !== 'joined') {
+        attemptRejoin();
+      }
+    }
+  });
+}
+
+function attemptRejoin() {
+  // Clean up old channel if exists
+  if (channel) {
+    try { supabaseClient.removeChannel(channel); } catch (e) { /* ignore */ }
+    channel = null;
+  }
+
+  channel = supabaseClient.channel('room-' + roomCode, {
+    config: { broadcast: { self: true } },
+  });
+  channel.on('broadcast', { event: 'sync' }, function(msg) {
+    handleSyncMessage(msg.payload);
+  });
+  channel.subscribe(function(status) {
+    if (status === 'SUBSCRIBED') {
+      broadcastSync({
+        type: 'player_rejoin',
+        playerId: myId,
+        playerName: myName,
+      });
+
+      // Hide reconnecting notice
+      var loadingEl = document.getElementById('loading-status');
+      if (loadingEl && loadingEl.textContent.indexOf('重新連線') >= 0) {
+        loadingEl.textContent = '已重新連線！';
+        setTimeout(function() { loadingEl.style.display = 'none'; }, 1500);
+      }
+    }
+  });
 }
 
 if (document.readyState === 'loading') {
