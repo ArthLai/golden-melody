@@ -16,7 +16,7 @@
       <h1 class="game-title">金曲猜歌王</h1>
       <p class="subtitle">多人連線猜歌桌遊</p>
       <div class="game-rules-brief">
-        <details>
+        <details open>
           <summary>📖 遊戲規則</summary>
           <ul>
             <li>每位玩家輪流聆聽一段隨機歌曲片段（30秒）</li>
@@ -57,6 +57,8 @@
   <div id="screen-waiting" class="screen">
     <div class="waiting-container">
       <h2>房間 <span id="display-room-code"></span></h2>
+      <button id="btn-copy-code" class="btn-copy-code">📋 複製代碼</button>
+      <button id="btn-copy-link" class="btn-copy-code">📋 複製邀請連結</button>
       <div id="qr-container" style="margin: 1rem auto; text-align: center;">
         <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.4rem;">掃描 QR Code 加入房間</p>
       </div>
@@ -81,6 +83,7 @@
           <span id="win-score-label" class="win-score-label"></span>
           <span id="round-label">第 1 回合</span>
         </div>
+        <div id="phase-status" class="phase-status"></div>
         <div class="scoreboard" id="scoreboard"></div>
         <h3 class="timeline-title" id="timeline-owner-label">我的時間軸</h3>
         <div id="timeline" class="timeline"></div>
@@ -120,22 +123,22 @@
 
         <!-- 猜題區 -->
         <div id="guess-section" class="guess-section" style="display:none;">
-          <h3>放置 &amp; 猜歌</h3>
-          <p class="section-hint">選擇時間軸上的位置放置歌曲，並嘗試猜出歌手和歌名（兩者都對才得 1 籌碼）</p>
-          <input type="text" id="guess-artist" placeholder="猜歌手（選填）...">
-          <input type="text" id="guess-title" placeholder="猜歌名（選填）...">
+          <h3>🎯 猜年代</h3>
+          <p class="section-hint">聽完歌曲後，點擊時間軸上的「＋」將歌曲插入你認為正確的年代位置。猜對歌手＋歌名可額外獲得 1 籌碼</p>
+          <input type="text" id="guess-artist" placeholder="猜歌手（選填）..." autocomplete="off">
+          <input type="text" id="guess-title" placeholder="猜歌名（選填）..." autocomplete="off">
           <button id="btn-submit-placement" class="btn-primary" disabled>確認放置</button>
         </div>
 
         <!-- 下注區 (其他玩家) -->
         <div id="betting-section" class="betting-section" style="display:none;">
-          <h3>下注 &amp; 搶答</h3>
-          <p class="bet-hint">選擇年代位置下注 (-1 籌碼)，再點一次可取消。也可直接猜歌手/歌名</p>
-          <p class="section-hint">猜歌手＋歌名皆對 → +1 籌碼（僅最快提交者獲得）</p>
+          <h3>🎰 下注猜年代</h3>
+          <p class="bet-hint">點擊「＋」選擇你認為正確的位置（-1 籌碼），再點一次取消</p>
+          <p class="section-hint">猜對歌手＋歌名 → 最快答對者 +1 籌碼</p>
           <div id="bet-timeline" class="timeline betting-timeline"></div>
           <div class="bet-guess-row">
-            <input type="text" id="bet-guess-artist" placeholder="搶答歌手（選填）...">
-            <input type="text" id="bet-guess-title" placeholder="搶答歌名（選填）...">
+            <input type="text" id="bet-guess-artist" placeholder="搶答歌手（選填）..." autocomplete="off">
+            <input type="text" id="bet-guess-title" placeholder="搶答歌名（選填）..." autocomplete="off">
           </div>
           <button id="btn-submit-bet" class="btn-primary" disabled>確認提交</button>
         </div>
@@ -144,6 +147,7 @@
         <div id="reveal-section" class="reveal-section" style="display:none;">
           <div id="reveal-content"></div>
           <button id="btn-next-round" class="btn-primary" style="display:none;">下一回合</button>
+          <button id="btn-back-lobby" class="btn-primary" style="display:none; margin-top:0.75rem;">🏠 回到大廳</button>
         </div>
       </div>
     </div>

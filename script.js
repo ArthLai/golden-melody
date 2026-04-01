@@ -609,6 +609,13 @@ function setupTurnUI() {
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = 'none';
 
+  // Phase status
+  if (amHero) {
+    updatePhaseStatus('📍 選擇時間軸位置放入這首歌');
+  } else {
+    updatePhaseStatus('🎧 ' + currentPlayer.name + ' 正在聽歌...');
+  }
+
   // Always stop phase timer on new turn
   stopPhaseTimer();
 
@@ -706,6 +713,7 @@ function handleHeroSubmitted(payload) {
     document.getElementById('reveal-section').style.display = '';
     document.getElementById('reveal-content').innerHTML = '<h3>等待其他玩家下注...</h3>';
     document.getElementById('btn-next-round').style.display = 'none';
+    updatePhaseStatus('🎰 其他玩家下注中...');
 
     // If no other players, auto-reveal immediately
     if (isHost) {
@@ -726,6 +734,7 @@ function handleHeroSubmitted(payload) {
     document.getElementById('music-section').style.display = 'none';
     document.getElementById('betting-section').style.display = '';
     document.getElementById('reveal-section').style.display = 'none';
+    updatePhaseStatus('🎰 選擇你認為正確的年代位置');
 
     // Render betting timeline: hero's timeline with hero's chosen gap shown as special marker
     const heroTimeline = currentPlayer.timeline;
@@ -740,7 +749,7 @@ function handleHeroSubmitted(payload) {
     if (me && me.tokens < 1) {
       document.querySelector('.bet-hint').textContent = '籌碼不足，無法下注位置（可猜歌手/歌名）';
     } else {
-      document.querySelector('.bet-hint').textContent = '選擇年代位置下注 (-1 籌碼)，再點一次可取消。也可直接猜歌手/歌名';
+      document.querySelector('.bet-hint').textContent = '點擊「＋」選擇你認為正確的位置（-1 籌碼），再點一次取消';
     }
 
     // Start 60s betting timer; auto-submit when expires
@@ -937,10 +946,20 @@ function handleReveal(payload) {
   isRevealPlayback = true;
   ensureYTPlayerForReveal(payload.song, amHero);
 
-  var html = '<div class="reveal-answer">';
+  updatePhaseStatus('📊 結算中');
+
+  var html = '<div class="reveal-answer reveal-animate">';
   html += '<div class="answer-song">' + payload.song.artist + ' — ' + payload.song.title + '</div>';
   html += '<div class="answer-detail">' + payload.song.year + ' 年</div>';
   html += '</div>';
+
+  // Show hero's guess if they guessed something
+  if (payload.heroPlacement && (payload.heroPlacement.guessArtist || payload.heroPlacement.guessTitle)) {
+    var guessA = payload.heroPlacement.guessArtist || '—';
+    var guessT = payload.heroPlacement.guessTitle || '—';
+    var heroPlayer = players[gameState.currentPlayerIndex];
+    html += '<p style="text-align:center; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.75rem;">' + heroPlayer.name + ' 的猜測：' + guessA + ' — ' + guessT + '</p>';
+  }
 
   html += '<ul class="reveal-result-list">';
   // Hero result
@@ -973,6 +992,11 @@ function handleReveal(payload) {
     html += '<li>' + p.name + ' <span class="' + resultClass + '">' + (badges.length ? badges.join(', ') : '未參與') + '</span></li>';
   }
   html += '</ul>';
+
+  // Non-host hint
+  if (!isHost) {
+    html += '<p class="hint" style="text-align:center; margin-top:0.75rem;">等待房主進入下一回合...</p>';
+  }
 
   document.getElementById('reveal-content').innerHTML = html;
 
@@ -1084,6 +1108,8 @@ function handleGameOver(payload) {
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = '';
 
+  updatePhaseStatus('');
+
   var w = payload.winner;
   var html = '<div class="winner-announcement">🏆 ' + w.name + ' 以 ' + w.score + ' 分獲勝！</div>';
   html += '<div class="final-scoreboard"><h3 style="margin: 1rem 0 0.5rem; color: var(--text-muted);">最終排名</h3><ul class="reveal-result-list">';
@@ -1095,6 +1121,7 @@ function handleGameOver(payload) {
   html += '</ul></div>';
   document.getElementById('reveal-content').innerHTML = html;
   document.getElementById('btn-next-round').style.display = 'none';
+  document.getElementById('btn-back-lobby').style.display = '';
 }
 
 function handleSuddenDeath(payload) {
@@ -1152,14 +1179,21 @@ function handleDirectScore(payload) {
   isRevealPlayback = true;
   ensureYTPlayerForReveal(payload.song, amHero);
 
+  updatePhaseStatus('📊 結算中');
+
   var scorer = players.find(function(p) { return p.id === payload.playerId; });
-  var html = '<div class="reveal-answer">';
+  var html = '<div class="reveal-answer reveal-animate">';
   html += '<div class="answer-song">' + payload.song.artist + ' — ' + payload.song.title + '</div>';
   html += '<div class="answer-detail">' + payload.song.year + ' 年</div>';
   html += '</div>';
   html += '<div style="text-align:center; margin: 1rem 0; color: var(--accent); font-size: 1.1rem;">';
   html += '💰 ' + (scorer ? scorer.name : '???') + ' 花費 3 籌碼直接得分！';
   html += '</div>';
+
+  // Non-host hint
+  if (!isHost) {
+    html += '<p class="hint" style="text-align:center; margin-top:0.75rem;">等待房主進入下一回合...</p>';
+  }
 
   document.getElementById('reveal-content').innerHTML = html;
   document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
@@ -1514,13 +1548,17 @@ function renderWaitingRoom() {
 
 function renderScoreboard() {
   const el = document.getElementById('scoreboard');
-  el.innerHTML = players.map((p, i) =>
-    `<div class="score-chip ${i === gameState.currentPlayerIndex ? 'active-player' : ''}">
-      <span>${p.name}</span>
-      <span class="chip-pts">${p.score}分</span>
-      <span class="chip-tokens">${p.tokens}籌碼</span>
-    </div>`
-  ).join('');
+  el.innerHTML = players.map((p, i) => {
+    var classes = 'score-chip';
+    if (i === gameState.currentPlayerIndex) classes += ' active-player';
+    if (p.id === myId) classes += ' score-chip-me';
+    var displayName = (p.id === myId ? '(我) ' : '') + p.name;
+    return `<div class="${classes}">
+      <span>${displayName}</span>
+      <span class="chip-pts">⭐${p.score}</span>
+      <span class="chip-tokens">🪙${p.tokens}</span>
+    </div>`;
+  }).join('');
 }
 
 function renderTimeline(containerId, timeline, interactive) {
@@ -1556,7 +1594,8 @@ function createGapElement(gapIndex, isBet) {
   gap.className = 'timeline-gap';
   if (!isBet && gapIndex === selectedGapIndex) gap.classList.add('selected');
   if (isBet && gapIndex === betSelectedGapIndex) gap.classList.add('bet-selected');
-  gap.textContent = '+';
+  gap.textContent = '\uFF0B';
+  gap.title = '點擊插入歌曲到此位置';
   gap.addEventListener('click', () => {
     if (isBet) {
       // Toggle: click same gap again to deselect
@@ -1607,6 +1646,14 @@ function renderBettingTimeline(heroTimeline, heroGapIndex) {
       container.appendChild(cardEl);
     }
   }
+}
+
+// ============================================================
+// F2. PHASE STATUS HELPER
+// ============================================================
+function updatePhaseStatus(text) {
+  var el = document.getElementById('phase-status');
+  if (el) el.textContent = text;
 }
 
 // ============================================================
@@ -1686,6 +1733,37 @@ function initEventListeners() {
   document.getElementById('btn-next-round').addEventListener('click', nextRound);
   document.getElementById('btn-swap').addEventListener('click', swapSong);
   document.getElementById('btn-direct-score').addEventListener('click', directScore);
+
+  // Back to lobby button
+  document.getElementById('btn-back-lobby').addEventListener('click', function() {
+    clearSession();
+    showScreen('screen-lobby');
+  });
+
+  // Copy room code button
+  document.getElementById('btn-copy-code').addEventListener('click', function() {
+    var btn = document.getElementById('btn-copy-code');
+    navigator.clipboard.writeText(roomCode).then(function() {
+      btn.textContent = '✅ 已複製';
+      setTimeout(function() { btn.textContent = '📋 複製代碼'; }, 2000);
+    }).catch(function() {
+      btn.textContent = '複製失敗';
+      setTimeout(function() { btn.textContent = '📋 複製代碼'; }, 2000);
+    });
+  });
+
+  // Copy invite link button
+  document.getElementById('btn-copy-link').addEventListener('click', function() {
+    var btn = document.getElementById('btn-copy-link');
+    var url = window.location.origin + window.location.pathname + '?room=' + roomCode;
+    navigator.clipboard.writeText(url).then(function() {
+      btn.textContent = '✅ 已複製';
+      setTimeout(function() { btn.textContent = '📋 複製邀請連結'; }, 2000);
+    }).catch(function() {
+      btn.textContent = '複製失敗';
+      setTimeout(function() { btn.textContent = '📋 複製邀請連結'; }, 2000);
+    });
+  });
 
   document.getElementById('btn-replay').addEventListener('click', function() {
     if (ytPlayer && typeof ytPlayer.seekTo === 'function') {
