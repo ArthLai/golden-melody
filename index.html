@@ -15,26 +15,20 @@
     <div class="lobby-container">
       <h1 class="game-title">金曲猜歌王</h1>
       <p class="subtitle">多人連線猜歌桌遊</p>
-      <div class="game-rules-brief">
-        <details open>
-          <summary>📖 遊戲規則</summary>
-          <ul>
-            <li>每位玩家輪流聆聽一段隨機歌曲片段（30秒）</li>
-            <li>根據歌曲年代，將其放入自己的時間軸正確位置</li>
-            <li>放置正確 → <strong>+1 分</strong></li>
-            <li>同時猜對歌手＋歌名 → <strong>+1 籌碼</strong>（上限 5 枚）</li>
-            <li>其他玩家可下注猜年代位置（-1 籌碼，猜對 +1 分 +2 籌碼）</li>
-            <li>技能：🔄 換歌 (-1)、💰 直接得分 (-3)</li>
-            <li>率先達到指定分數者獲勝（整輪結束後判定）</li>
-          </ul>
-        </details>
-      </div>
+      <div id="game-rules-container" class="game-rules-brief"></div>
 
       <div class="lobby-card">
         <label for="player-name">你的暱稱</label>
         <input type="text" id="player-name" placeholder="輸入暱稱..." maxlength="10">
 
-        <label for="lang-select">歌曲語言</label>
+        <label for="mode-select">遊戲模式</label>
+        <select id="mode-select">
+          <option value="music">🎵 金曲猜歌王</option>
+          <option value="movie">🎬 電影猜猜王</option>
+          <option value="ad">📺 廣告猜猜王</option>
+        </select>
+
+        <label for="lang-select">分類篩選</label>
         <select id="lang-select">
           <option value="全部">全部</option>
         </select>

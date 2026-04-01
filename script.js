@@ -59,9 +59,175 @@ var phaseTimer = null;
 var phaseSecondsLeft = 0;
 var phaseTimerTotal = 0;
 
+// Game mode: 'music' | 'movie' | 'ad'
+var gameMode = 'music';
+
+var MODE_CONFIG = {
+  music: {
+    title: '金曲猜歌王',
+    subtitle: '多人連線猜歌桌遊',
+    icon: '🎵',
+    useMask: true,
+    playFromStart: false,
+    guessFields: ['artist', 'title'],
+    guessLabels: { artist: '猜歌手', title: '猜歌名' },
+    betGuessLabels: { artist: '搶答歌手', title: '搶答歌名' },
+    revealFormat: function(song) { return song.artist + ' — ' + song.title; },
+    cardDisplay: function(card) {
+      return '<div class="card-year">' + card.year + '</div><div class="card-title">' + card.title + '</div><div class="card-artist">' + card.artist + '</div>';
+    },
+    phaseHero: '📍 選擇時間軸位置放入這首歌',
+    phaseSpectator: function(name) { return '🎧 ' + name + ' 正在聽歌...'; },
+    guessHint: '聽完歌曲後，點擊時間軸上的「＋」將歌曲插入你認為正確的年代位置。猜對歌手＋歌名可額外獲得 1 籌碼',
+    betHint: '點擊「＋」選擇你認為正確的位置（-1 籌碼），再點一次取消',
+    betGuessHint: '猜對歌手＋歌名 → 最快答對者 +1 籌碼',
+    swapLabel: '🔄 換歌 (-1 籌碼)',
+    guessSectionTitle: '🎯 猜年代',
+    betSectionTitle: '🎰 下注猜年代',
+    maskIcon: '🎵',
+    noTokenBetHint: '籌碼不足，無法下注位置（可猜歌手/歌名）',
+  },
+  movie: {
+    title: '電影猜猜王',
+    subtitle: '多人連線猜電影桌遊',
+    icon: '🎬',
+    useMask: false,
+    playFromStart: true,
+    guessFields: ['title'],
+    guessLabels: { title: '猜電影名稱' },
+    betGuessLabels: { title: '搶答電影名稱' },
+    revealFormat: function(song) { return song.title; },
+    cardDisplay: function(card) {
+      return '<div class="card-year">' + card.year + '</div><div class="card-title">' + card.title + '</div>';
+    },
+    phaseHero: '📍 選擇時間軸位置放入這部電影',
+    phaseSpectator: function(name) { return '🎬 ' + name + ' 正在看預告片...'; },
+    guessHint: '看完預告片後，點擊時間軸上的「＋」將電影插入你認為正確的年代位置。猜對電影名稱可額外獲得 1 籌碼',
+    betHint: '點擊「＋」選擇你認為正確的位置（-1 籌碼），再點一次取消',
+    betGuessHint: '猜對電影名稱 → 最快答對者 +1 籌碼',
+    swapLabel: '🔄 換片 (-1 籌碼)',
+    guessSectionTitle: '🎯 猜年代',
+    betSectionTitle: '🎰 下注猜年代',
+    maskIcon: '🎬',
+    noTokenBetHint: '籌碼不足，無法下注位置（可猜電影名稱）',
+  },
+  ad: {
+    title: '廣告猜猜王',
+    subtitle: '多人連線猜廣告桌遊',
+    icon: '📺',
+    useMask: false,
+    playFromStart: true,
+    guessFields: ['artist', 'title'],
+    guessLabels: { artist: '猜品牌', title: '猜商品' },
+    betGuessLabels: { artist: '搶答品牌', title: '搶答商品' },
+    revealFormat: function(song) { return song.artist + ' — ' + song.title; },
+    cardDisplay: function(card) {
+      return '<div class="card-year">' + card.year + '</div><div class="card-title">' + card.title + '</div><div class="card-artist">' + card.artist + '</div>';
+    },
+    phaseHero: '📍 選擇時間軸位置放入這支廣告',
+    phaseSpectator: function(name) { return '📺 ' + name + ' 正在看廣告...'; },
+    guessHint: '看完廣告後，點擊時間軸上的「＋」將廣告插入你認為正確的年代位置。猜對品牌＋商品可額外獲得 1 籌碼',
+    betHint: '點擊「＋」選擇你認為正確的位置（-1 籌碼），再點一次取消',
+    betGuessHint: '猜對品牌＋商品 → 最快答對者 +1 籌碼',
+    swapLabel: '🔄 換片 (-1 籌碼)',
+    guessSectionTitle: '🎯 猜年代',
+    betSectionTitle: '🎰 下注猜年代',
+    maskIcon: '📺',
+    noTokenBetHint: '籌碼不足，無法下注位置（可猜品牌/商品）',
+  },
+};
+
+function getModeConfig() {
+  return MODE_CONFIG[gameMode] || MODE_CONFIG.music;
+}
+
+function getRevealBadgeText() {
+  if (gameMode === 'movie') {
+    return { guessCorrect: '猜片正確', artistRight: null, titleRight: '片名對', artistWrong: null, titleWrong: '片名錯' };
+  } else if (gameMode === 'ad') {
+    return { guessCorrect: '猜對品牌商品', artistRight: '品牌對', titleRight: '商品對', artistWrong: '品牌錯', titleWrong: '商品錯' };
+  }
+  return { guessCorrect: '猜歌正確', artistRight: '歌手對', titleRight: '歌名對', artistWrong: '歌手錯', titleWrong: '歌名錯' };
+}
+
+function renderModeRules() {
+  var mc = getModeConfig();
+  var container = document.getElementById('game-rules-container');
+  if (!container) return;
+  var rules = '';
+  if (gameMode === 'music') {
+    rules = '<details open><summary>📖 遊戲規則</summary><ul>' +
+      '<li>每位玩家輪流聆聽一段隨機歌曲片段（30秒）</li>' +
+      '<li>根據歌曲年代，將其放入自己的時間軸正確位置</li>' +
+      '<li>放置正確 → <strong>+1 分</strong></li>' +
+      '<li>同時猜對歌手＋歌名 → <strong>+1 籌碼</strong>（上限 5 枚）</li>' +
+      '<li>其他玩家可下注猜年代位置（-1 籌碼，猜對 +1 分 +2 籌碼）</li>' +
+      '<li>技能：🔄 換歌 (-1)、💰 直接得分 (-3)</li>' +
+      '<li>率先達到指定分數者獲勝（整輪結束後判定）</li>' +
+      '</ul></details>';
+  } else if (gameMode === 'movie') {
+    rules = '<details open><summary>📖 遊戲規則</summary><ul>' +
+      '<li>每位玩家輪流觀看一段電影預告片（30秒）</li>' +
+      '<li>根據電影年代，將其放入自己的時間軸正確位置</li>' +
+      '<li>放置正確 → <strong>+1 分</strong></li>' +
+      '<li>猜對電影名稱 → <strong>+1 籌碼</strong>（上限 5 枚）</li>' +
+      '<li>其他玩家可下注猜年代位置（-1 籌碼，猜對 +1 分 +2 籌碼）</li>' +
+      '<li>技能：🔄 換片 (-1)、💰 直接得分 (-3)</li>' +
+      '<li>率先達到指定分數者獲勝（整輪結束後判定）</li>' +
+      '</ul></details>';
+  } else if (gameMode === 'ad') {
+    rules = '<details open><summary>📖 遊戲規則</summary><ul>' +
+      '<li>每位玩家輪流觀看一支廣告影片（30秒）</li>' +
+      '<li>根據廣告年代，將其放入自己的時間軸正確位置</li>' +
+      '<li>放置正確 → <strong>+1 分</strong></li>' +
+      '<li>同時猜對品牌＋商品 → <strong>+1 籌碼</strong>（上限 5 枚）</li>' +
+      '<li>其他玩家可下注猜年代位置（-1 籌碼，猜對 +1 分 +2 籌碼）</li>' +
+      '<li>技能：🔄 換片 (-1)、💰 直接得分 (-3)</li>' +
+      '<li>率先達到指定分數者獲勝（整輪結束後判定）</li>' +
+      '</ul></details>';
+  }
+  container.innerHTML = rules;
+}
+
+function applyModeUI() {
+  var mc = getModeConfig();
+  // Update page title
+  document.title = mc.title;
+  // Update guess field visibility and placeholders
+  var guessArtist = document.getElementById('guess-artist');
+  var guessTitle = document.getElementById('guess-title');
+  var betGuessArtist = document.getElementById('bet-guess-artist');
+  var betGuessTitle = document.getElementById('bet-guess-title');
+  if (mc.guessFields.indexOf('artist') === -1) {
+    if (guessArtist) guessArtist.style.display = 'none';
+    if (betGuessArtist) betGuessArtist.style.display = 'none';
+  } else {
+    if (guessArtist) { guessArtist.style.display = ''; guessArtist.placeholder = mc.guessLabels.artist + '（選填）...'; }
+    if (betGuessArtist) { betGuessArtist.style.display = ''; betGuessArtist.placeholder = mc.betGuessLabels.artist + '（選填）...'; }
+  }
+  if (guessTitle) guessTitle.placeholder = mc.guessLabels.title + '（選填）...';
+  if (betGuessTitle) betGuessTitle.placeholder = mc.betGuessLabels.title + '（選填）...';
+  // Apply or remove yt-hide-title class
+  var ytContainer = document.getElementById('yt-player-container');
+  if (ytContainer) {
+    if (!mc.useMask) {
+      ytContainer.classList.add('yt-hide-title');
+    } else {
+      ytContainer.classList.remove('yt-hide-title');
+    }
+  }
+  // Update mask icon
+  var maskIcon = document.querySelector('.mask-icon');
+  if (maskIcon) maskIcon.textContent = mc.maskIcon;
+}
+
 // ============================================================
 // A. DATA MODULE — Google Sheet loader
 // ============================================================
+// NOTE: The Google Sheet may have different tabs for different modes (music/movie/ad).
+// For now, all modes load from the same default sheet. The CSV columns stay the same:
+// (語言, 歌手/品牌, 歌名/電影名/商品, 年代, YouTube連結).
+// The data interpretation changes by mode but the column structure is the same.
 function getSheetCSVUrl() {
   return `https://docs.google.com/spreadsheets/d/${CONFIG.GOOGLE_SHEET_ID}/export?format=csv`;
 }
@@ -149,7 +315,8 @@ async function loadSongDatabase() {
     populateLanguageSelect();
 
     isGoogleSheetLoaded = true;
-    statusEl.textContent = `題庫載入完成！共 ${songDatabase.length} 首歌`;
+    var modePool = getModePool();
+    statusEl.textContent = '題庫載入完成！共 ' + modePool.length + ' 筆';
     statusEl.className = 'loading-status loaded';
     document.getElementById('btn-create-room').disabled = false;
     document.getElementById('btn-join-room').disabled = false;
@@ -160,21 +327,55 @@ async function loadSongDatabase() {
   }
 }
 
+// Mode-to-language mapping:
+// 語言 column holds: 中文, 粵語, 台語, ... (music), 電影 (movie), 廣告 (ad)
+var MODE_LANGUAGES = {
+  music: null,    // null = everything EXCEPT movie/ad keywords
+  movie: ['電影'],
+  ad: ['廣告'],
+};
+var NON_MUSIC_KEYWORDS = ['電影', '廣告'];
+
+function getModePool() {
+  var modeLangs = MODE_LANGUAGES[gameMode];
+  if (modeLangs) {
+    // Movie/Ad: filter to rows matching these language values
+    return songDatabase.filter(function(s) { return modeLangs.includes(s.language); });
+  }
+  // Music: exclude movie/ad rows
+  return songDatabase.filter(function(s) { return !NON_MUSIC_KEYWORDS.includes(s.language); });
+}
+
 function populateLanguageSelect() {
   const sel = document.getElementById('lang-select');
+  var pool = getModePool();
+  var langSet = new Set(pool.map(function(s) { return s.language; }));
+  var langs = Array.from(langSet).sort();
+
   sel.innerHTML = '<option value="全部">全部</option>';
-  availableLanguages.forEach(lang => {
+  langs.forEach(function(lang) {
     const opt = document.createElement('option');
     opt.value = lang;
     opt.textContent = lang;
     sel.appendChild(opt);
   });
+
+  // Hide language selector if only one category (e.g. movie/ad)
+  var langRow = sel.closest('.lobby-card') ? sel.previousElementSibling : null;
+  if (langs.length <= 1) {
+    sel.style.display = 'none';
+    if (langRow && langRow.tagName === 'LABEL') langRow.style.display = 'none';
+  } else {
+    sel.style.display = '';
+    if (langRow && langRow.tagName === 'LABEL') langRow.style.display = '';
+  }
 }
 
 function getFilteredSongs() {
+  var pool = getModePool();
   const lang = document.getElementById('lang-select').value;
-  if (lang === '全部') return songDatabase;
-  return songDatabase.filter(s => s.language === lang);
+  if (lang === '全部') return pool;
+  return pool.filter(function(s) { return s.language === lang; });
 }
 
 function drawRandomSong() {
@@ -376,18 +577,24 @@ function onPlayerStateChange(event) {
   // When video first starts playing, seek to random segment (but not during reveal)
   if (event.data === YT.PlayerState.PLAYING && !hasSeekStarted && !isRevealPlayback) {
     hasSeekStarted = true;
-    try {
-      var duration = ytPlayer.getDuration();
-      if (duration > CONFIG.PLAYBACK_SECONDS + 10) {
-        // Pick a random start between 10% and 70% of the song
-        var minStart = Math.floor(duration * 0.1);
-        var maxStart = Math.floor(duration * 0.7);
-        currentRandomStart = minStart + Math.floor(Math.random() * (maxStart - minStart));
-        ytPlayer.seekTo(currentRandomStart, true);
-      } else {
-        currentRandomStart = 0;
-      }
-    } catch (e) { /* ignore seek errors */ }
+    var modeConf = getModeConfig();
+    if (modeConf.playFromStart) {
+      // Movie/ad mode: play from start, no random seek
+      currentRandomStart = 0;
+    } else {
+      try {
+        var duration = ytPlayer.getDuration();
+        if (duration > CONFIG.PLAYBACK_SECONDS + 10) {
+          // Pick a random start between 10% and 70% of the song
+          var minStart = Math.floor(duration * 0.1);
+          var maxStart = Math.floor(duration * 0.7);
+          currentRandomStart = minStart + Math.floor(Math.random() * (maxStart - minStart));
+          ytPlayer.seekTo(currentRandomStart, true);
+        } else {
+          currentRandomStart = 0;
+        }
+      } catch (e) { /* ignore seek errors */ }
+    }
     startPlaybackTimer();
   } else if (event.data === YT.PlayerState.PLAYING && hasSeekStarted) {
     // After seek completes, timer is already running
@@ -481,6 +688,7 @@ function handlePlayerJoin(player) {
         type: 'game_sync',
         players: players,
         winScore: winScore,
+        gameMode: gameMode,
         gameState: {
           phase: gameState.phase,
           currentPlayerIndex: gameState.currentPlayerIndex,
@@ -540,6 +748,7 @@ function startGame() {
     type: 'game_start',
     players: players,
     winScore: winScore,
+    gameMode: gameMode,
     gameState: {
       ...gameState,
       // Only send youtubeId to all; artist/title/year hidden until reveal
@@ -550,6 +759,7 @@ function startGame() {
 }
 
 function handleGameStart(payload) {
+  gameMode = payload.gameMode || 'music';
   players = payload.players.map(p => ({
     ...p,
     timeline: p.timeline || [],
@@ -562,6 +772,7 @@ function handleGameStart(payload) {
     currentSong: payload.fullSong || payload.gameState.currentSong,
     betOrder: [],
   };
+  applyModeUI();
   showScreen('screen-game');
   setupTurnUI();
 }
@@ -610,11 +821,46 @@ function setupTurnUI() {
   document.getElementById('reveal-section').style.display = 'none';
 
   // Phase status
+  var mc = getModeConfig();
   if (amHero) {
-    updatePhaseStatus('📍 選擇時間軸位置放入這首歌');
+    updatePhaseStatus(mc.phaseHero);
   } else {
-    updatePhaseStatus('🎧 ' + currentPlayer.name + ' 正在聽歌...');
+    updatePhaseStatus(mc.phaseSpectator(currentPlayer.name));
   }
+
+  // Mode-aware guess section labels and fields
+  var guessSectionEl = document.getElementById('guess-section');
+  if (guessSectionEl) {
+    guessSectionEl.querySelector('h3').textContent = mc.guessSectionTitle;
+    guessSectionEl.querySelector('.section-hint').textContent = mc.guessHint;
+  }
+  var guessArtistEl = document.getElementById('guess-artist');
+  var guessTitleEl = document.getElementById('guess-title');
+  if (mc.guessFields.indexOf('artist') === -1) {
+    if (guessArtistEl) guessArtistEl.style.display = 'none';
+  } else {
+    if (guessArtistEl) { guessArtistEl.style.display = ''; guessArtistEl.placeholder = mc.guessLabels.artist + '（選填）...'; }
+  }
+  if (guessTitleEl) guessTitleEl.placeholder = mc.guessLabels.title + '（選填）...';
+
+  // Swap button label
+  var swapBtnEl = document.getElementById('btn-swap');
+  if (swapBtnEl) swapBtnEl.textContent = mc.swapLabel;
+
+  // Mask and YT title overlay
+  var ytContainer = document.getElementById('yt-player-container');
+  var mask = document.getElementById('yt-mask');
+  if (!mc.useMask) {
+    if (mask) mask.style.display = 'none';
+    if (ytContainer) ytContainer.classList.add('yt-hide-title');
+  } else {
+    if (mask) mask.style.display = '';
+    if (ytContainer) ytContainer.classList.remove('yt-hide-title');
+  }
+
+  // Update mask icon
+  var maskIconEl = document.querySelector('.mask-icon');
+  if (maskIconEl) maskIconEl.textContent = mc.maskIcon;
 
   // Always stop phase timer on new turn
   stopPhaseTimer();
@@ -745,11 +991,28 @@ function handleHeroSubmitted(payload) {
     document.getElementById('bet-guess-artist').value = '';
     document.getElementById('bet-guess-title').value = '';
 
+    // Mode-aware betting section
+    var bmc = getModeConfig();
+    var bettingSectionEl = document.getElementById('betting-section');
+    if (bettingSectionEl) {
+      bettingSectionEl.querySelector('h3').textContent = bmc.betSectionTitle;
+      var sectionHintEl = bettingSectionEl.querySelector('.section-hint');
+      if (sectionHintEl) sectionHintEl.textContent = bmc.betGuessHint;
+    }
+    var betArtistEl = document.getElementById('bet-guess-artist');
+    var betTitleEl = document.getElementById('bet-guess-title');
+    if (bmc.guessFields.indexOf('artist') === -1) {
+      if (betArtistEl) betArtistEl.style.display = 'none';
+    } else {
+      if (betArtistEl) { betArtistEl.style.display = ''; betArtistEl.placeholder = bmc.betGuessLabels.artist + '（選填）...'; }
+    }
+    if (betTitleEl) betTitleEl.placeholder = bmc.betGuessLabels.title + '（選填）...';
+
     const me = players.find(p => p.id === myId);
     if (me && me.tokens < 1) {
-      document.querySelector('.bet-hint').textContent = '籌碼不足，無法下注位置（可猜歌手/歌名）';
+      document.querySelector('.bet-hint').textContent = bmc.noTokenBetHint;
     } else {
-      document.querySelector('.bet-hint').textContent = '點擊「＋」選擇你認為正確的位置（-1 籌碼），再點一次取消';
+      document.querySelector('.bet-hint').textContent = bmc.betHint;
     }
 
     // Start 60s betting timer; auto-submit when expires
@@ -948,8 +1211,11 @@ function handleReveal(payload) {
 
   updatePhaseStatus('📊 結算中');
 
+  var rmc = getModeConfig();
+  var rbt = getRevealBadgeText();
+
   var html = '<div class="reveal-answer reveal-animate">';
-  html += '<div class="answer-song">' + payload.song.artist + ' — ' + payload.song.title + '</div>';
+  html += '<div class="answer-song">' + rmc.revealFormat(payload.song) + '</div>';
   html += '<div class="answer-detail">' + payload.song.year + ' 年</div>';
   html += '</div>';
 
@@ -958,7 +1224,13 @@ function handleReveal(payload) {
     var guessA = payload.heroPlacement.guessArtist || '—';
     var guessT = payload.heroPlacement.guessTitle || '—';
     var heroPlayer = players[gameState.currentPlayerIndex];
-    html += '<p style="text-align:center; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.75rem;">' + heroPlayer.name + ' 的猜測：' + guessA + ' — ' + guessT + '</p>';
+    var heroGuessText;
+    if (rmc.guessFields.indexOf('artist') === -1) {
+      heroGuessText = heroPlayer.name + ' 的猜測：' + guessT;
+    } else {
+      heroGuessText = heroPlayer.name + ' 的猜測：' + guessA + ' — ' + guessT;
+    }
+    html += '<p style="text-align:center; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.75rem;">' + heroGuessText + '</p>';
   }
 
   html += '<ul class="reveal-result-list">';
@@ -966,9 +1238,16 @@ function handleReveal(payload) {
   var hero = players[gameState.currentPlayerIndex];
   var heroBadges = [];
   if (payload.heroCorrect) heroBadges.push('年代正確 +1分');
-  if (payload.heroBothCorrect) heroBadges.push('猜歌正確 +1籌碼');
-  else if (payload.heroArtistCorrect && !payload.heroTitleCorrect) heroBadges.push('歌手對/歌名錯');
-  else if (!payload.heroArtistCorrect && payload.heroTitleCorrect) heroBadges.push('歌名對/歌手錯');
+  if (payload.heroBothCorrect) heroBadges.push(rbt.guessCorrect + ' +1籌碼');
+  else {
+    if (rbt.artistRight !== null) {
+      if (payload.heroArtistCorrect && !payload.heroTitleCorrect) heroBadges.push(rbt.artistRight + '/' + rbt.titleWrong);
+      else if (!payload.heroArtistCorrect && payload.heroTitleCorrect) heroBadges.push(rbt.titleRight + '/' + rbt.artistWrong);
+    } else {
+      if (!payload.heroTitleCorrect && payload.heroPlacement && payload.heroPlacement.guessTitle) heroBadges.push(rbt.titleWrong);
+      else if (payload.heroTitleCorrect && !payload.heroBothCorrect) heroBadges.push(rbt.titleRight);
+    }
+  }
   var heroClass = (payload.heroCorrect || payload.heroBothCorrect) ? 'result-correct' : 'result-wrong';
   html += '<li>' + hero.name + ' <span class="' + heroClass + '">' + (heroBadges.length ? heroBadges.join(', ') : '年代錯誤') + '</span></li>';
 
@@ -984,10 +1263,17 @@ function handleReveal(payload) {
       if (res.correct) badges.push('年代正確 +1分');
       else badges.push('年代錯誤 -1籌碼');
     }
-    if (res.bothCorrect) badges.push('猜歌正確 +1籌碼 (最快搶答)');
-    else if (res.blocked) badges.push('猜歌正確 但已被搶答');
-    else if (res.artistMatch && !res.titleMatch) badges.push('歌手對/歌名錯');
-    else if (!res.artistMatch && res.titleMatch) badges.push('歌名對/歌手錯');
+    if (res.bothCorrect) badges.push(rbt.guessCorrect + ' +1籌碼 (最快搶答)');
+    else if (res.blocked) badges.push(rbt.guessCorrect + ' 但已被搶答');
+    else {
+      if (rbt.artistRight !== null) {
+        if (res.artistMatch && !res.titleMatch) badges.push(rbt.artistRight + '/' + rbt.titleWrong);
+        else if (!res.artistMatch && res.titleMatch) badges.push(rbt.titleRight + '/' + rbt.artistWrong);
+      } else {
+        if (!res.titleMatch && (res.titleMatch !== undefined)) { /* no partial badge for single field */ }
+        else if (res.titleMatch && !res.bothCorrect) badges.push(rbt.titleRight);
+      }
+    }
     var resultClass = (res.correct || res.bothCorrect) ? 'result-correct' : 'result-wrong';
     html += '<li>' + p.name + ' <span class="' + resultClass + '">' + (badges.length ? badges.join(', ') : '未參與') + '</span></li>';
   }
@@ -1181,9 +1467,10 @@ function handleDirectScore(payload) {
 
   updatePhaseStatus('📊 結算中');
 
+  var dmc = getModeConfig();
   var scorer = players.find(function(p) { return p.id === payload.playerId; });
   var html = '<div class="reveal-answer reveal-animate">';
-  html += '<div class="answer-song">' + payload.song.artist + ' — ' + payload.song.title + '</div>';
+  html += '<div class="answer-song">' + dmc.revealFormat(payload.song) + '</div>';
   html += '<div class="answer-detail">' + payload.song.year + ' 年</div>';
   html += '</div>';
   html += '<div style="text-align:center; margin: 1rem 0; color: var(--accent); font-size: 1.1rem;">';
@@ -1203,6 +1490,7 @@ function handleDirectScore(payload) {
 function handleGameSync(payload) {
   // Only process if I'm not the host and I'm still in waiting screen
   if (isHost) return;
+  gameMode = payload.gameMode || 'music';
   players = payload.players.map(function(p) {
     return {
       ...p,
@@ -1217,6 +1505,7 @@ function handleGameSync(payload) {
     betOrder: [],
     bets: {},
   };
+  applyModeUI();
 
   // Switch to game screen as a spectator
   showScreen('screen-game');
@@ -1304,6 +1593,7 @@ function handlePlayerRejoin(payload) {
     wasHost: wasHost,
     players: players,
     winScore: winScore,
+    gameMode: gameMode,
     gameState: {
       phase: gameState.phase,
       currentPlayerIndex: gameState.currentPlayerIndex,
@@ -1324,6 +1614,7 @@ function handleRejoinState(payload) {
     isHost = true;
   }
 
+  gameMode = payload.gameMode || 'music';
   players = payload.players.map(function(p) {
     return {
       ...p,
@@ -1338,6 +1629,7 @@ function handleRejoinState(payload) {
     betOrder: gameState.betOrder || [],
     bets: gameState.bets || {},
   };
+  applyModeUI();
 
   // Determine if game hasn't started yet
   if (gameState.phase === 'waiting') {
@@ -1555,8 +1847,8 @@ function renderScoreboard() {
     var displayName = (p.id === myId ? '(我) ' : '') + p.name;
     return `<div class="${classes}">
       <span>${displayName}</span>
-      <span class="chip-pts">⭐${p.score}</span>
-      <span class="chip-tokens">🪙${p.tokens}</span>
+      <span class="chip-pts">${p.score}分</span>
+      <span class="chip-tokens">${p.tokens}籌碼</span>
     </div>`;
   }).join('');
 }
@@ -1570,11 +1862,12 @@ function renderTimeline(containerId, timeline, interactive) {
     container.appendChild(createGapElement(0, false));
   }
 
+  var tlmc = getModeConfig();
   timeline.forEach((card, idx) => {
     // Card
     const cardEl = document.createElement('div');
     cardEl.className = 'timeline-card';
-    cardEl.innerHTML = '<div class="card-year">' + card.year + '</div><div class="card-title">' + card.title + '</div><div class="card-artist">' + card.artist + '</div>';
+    cardEl.innerHTML = tlmc.cardDisplay(card);
     container.appendChild(cardEl);
 
     // Gap after card
@@ -1640,9 +1933,10 @@ function renderBettingTimeline(heroTimeline, heroGapIndex) {
     }
 
     if (i < heroTimeline.length) {
+      var btmc = getModeConfig();
       const cardEl = document.createElement('div');
       cardEl.className = 'timeline-card';
-      cardEl.innerHTML = '<div class="card-year">' + heroTimeline[i].year + '</div><div class="card-title">' + heroTimeline[i].title + '</div><div class="card-artist">' + heroTimeline[i].artist + '</div>';
+      cardEl.innerHTML = btmc.cardDisplay(heroTimeline[i]);
       container.appendChild(cardEl);
     }
   }
@@ -1660,6 +1954,25 @@ function updatePhaseStatus(text) {
 // G. EVENT BINDINGS
 // ============================================================
 function initEventListeners() {
+  // Mode selector
+  document.getElementById('mode-select').addEventListener('change', function() {
+    gameMode = this.value;
+    renderModeRules();
+    populateLanguageSelect();
+    var mc = getModeConfig();
+    document.querySelector('.game-title').textContent = mc.title;
+    document.querySelector('.subtitle').textContent = mc.subtitle;
+    // Update loading status with mode-filtered count
+    if (isGoogleSheetLoaded) {
+      var pool = getModePool();
+      var statusEl = document.getElementById('loading-status');
+      if (statusEl) {
+        statusEl.textContent = '題庫載入完成！共 ' + pool.length + ' 筆';
+        statusEl.className = 'loading-status loaded';
+      }
+    }
+  });
+
   // Lobby
   document.getElementById('btn-create-room').addEventListener('click', () => {
     myName = document.getElementById('player-name').value.trim();
@@ -1669,6 +1982,7 @@ function initEventListeners() {
     myId = generateId();
     isHost = true;
     roomCode = generateRoomCode();
+    gameMode = document.getElementById('mode-select').value;
 
     players = [{
       id: myId,
@@ -1698,6 +2012,7 @@ function initEventListeners() {
     myId = generateId();
     isHost = false;
     roomCode = code;
+    gameMode = document.getElementById('mode-select').value;
 
     // Add self to local list (host will send full list)
     players = [{
@@ -1794,6 +2109,7 @@ function initApp() {
   loadYouTubeAPI();
   loadSongDatabase();
   initEventListeners();
+  renderModeRules();
 
   // Auto-fill room code from URL ?room=XXXXX
   var params = new URLSearchParams(window.location.search);
