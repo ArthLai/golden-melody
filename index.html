@@ -6,6 +6,7 @@
   <title>金曲猜歌王</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -14,6 +15,20 @@
     <div class="lobby-container">
       <h1 class="game-title">金曲猜歌王</h1>
       <p class="subtitle">多人連線猜歌桌遊</p>
+      <div class="game-rules-brief">
+        <details>
+          <summary>📖 遊戲規則</summary>
+          <ul>
+            <li>每位玩家輪流聆聽一段隨機歌曲片段（30秒）</li>
+            <li>根據歌曲年代，將其放入自己的時間軸正確位置</li>
+            <li>放置正確 → <strong>+1 分</strong></li>
+            <li>同時猜對歌手＋歌名 → <strong>+1 籌碼</strong>（上限 5 枚）</li>
+            <li>其他玩家可下注猜年代位置（-1 籌碼，猜對 +1 分 +2 籌碼）</li>
+            <li>技能：🔄 換歌 (-1)、💰 直接得分 (-3)</li>
+            <li>率先達到指定分數者獲勝（整輪結束後判定）</li>
+          </ul>
+        </details>
+      </div>
 
       <div class="lobby-card">
         <label for="player-name">你的暱稱</label>
@@ -45,6 +60,9 @@
   <div id="screen-waiting" class="screen">
     <div class="waiting-container">
       <h2>房間 <span id="display-room-code"></span></h2>
+      <div id="qr-container" style="margin: 1rem auto; text-align: center;">
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.4rem;">掃描 QR Code 加入房間</p>
+      </div>
       <div id="player-list" class="player-list"></div>
       <div id="host-settings" style="display:none; margin-bottom: 1rem;">
         <label for="win-score-input-waiting" style="color: var(--text-muted); font-size: 0.85rem;">勝利分數</label>
@@ -93,22 +111,24 @@
 
         <!-- 猜題區 -->
         <div id="guess-section" class="guess-section" style="display:none;">
-          <h3>猜測 (可選)</h3>
-          <input type="text" id="guess-artist" placeholder="猜歌手...">
-          <input type="text" id="guess-title" placeholder="猜歌名...">
+          <h3>放置 &amp; 猜歌</h3>
+          <p class="section-hint">選擇時間軸上的位置放置歌曲，並嘗試猜出歌手和歌名（兩者都對才得 1 籌碼）</p>
+          <input type="text" id="guess-artist" placeholder="猜歌手（選填）...">
+          <input type="text" id="guess-title" placeholder="猜歌名（選填）...">
           <button id="btn-submit-placement" class="btn-primary" disabled>確認放置</button>
         </div>
 
         <!-- 下注區 (其他玩家) -->
         <div id="betting-section" class="betting-section" style="display:none;">
-          <h3>下注階段</h3>
-          <p class="bet-hint">選擇你認為正確的年代位置 (-1 籌碼)</p>
+          <h3>下注 &amp; 搶答</h3>
+          <p class="bet-hint">選擇年代位置下注 (-1 籌碼)，或直接提交猜歌手/歌名</p>
+          <p class="section-hint">猜歌手＋歌名皆對 → +1 籌碼（僅最快提交者獲得）</p>
           <div id="bet-timeline" class="timeline betting-timeline"></div>
           <div class="bet-guess-row">
-            <input type="text" id="bet-guess-artist" placeholder="搶答歌手...">
-            <input type="text" id="bet-guess-title" placeholder="搶答歌名...">
+            <input type="text" id="bet-guess-artist" placeholder="搶答歌手（選填）...">
+            <input type="text" id="bet-guess-title" placeholder="搶答歌名（選填）...">
           </div>
-          <button id="btn-submit-bet" class="btn-primary" disabled>確認下注</button>
+          <button id="btn-submit-bet" class="btn-primary" disabled>確認提交</button>
         </div>
 
         <!-- 結算區 -->

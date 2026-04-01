@@ -11,6 +11,7 @@ var CONFIG = {
   GOOGLE_SHEET_ID: '13BKUVWdA3t-Zh8085EjhGODuD-5jZGZP5MoghM1crDY',
   PLAYBACK_SECONDS: 30,
   INITIAL_TOKENS: 2,
+  MAX_TOKENS: 5,
 };
 
 // --------------- Global State ---------------
@@ -255,6 +256,12 @@ function handleSyncMessage(payload) {
       break;
     case 'direct_score':
       handleDirectScore(payload);
+      break;
+    case 'game_over':
+      handleGameOver(payload);
+      break;
+    case 'sudden_death':
+      handleSuddenDeath(payload);
       break;
   }
 }
@@ -684,19 +691,21 @@ function triggerReveal() {
   var heroCorrect = correctGaps.includes(gameState.heroPlacement.gapIndex);
   if (heroCorrect) currentPlayer.score += 1;
 
-  // Hero artist/title guesses
+  // Hero artist/title guesses — must get BOTH correct to earn 1 token
   var heroArtistCorrect = normalizeGuess(gameState.heroPlacement.guessArtist) === normalizeGuess(song.artist);
   var heroTitleCorrect = normalizeGuess(gameState.heroPlacement.guessTitle) === normalizeGuess(song.title);
-  if (heroArtistCorrect) currentPlayer.tokens += 1;
-  if (heroTitleCorrect) currentPlayer.tokens += 1;
+  var heroBothCorrect = heroArtistCorrect && heroTitleCorrect;
+  if (heroBothCorrect) {
+    currentPlayer.tokens += 1;
+    capTokens(currentPlayer);
+  }
 
   // Insert song into hero's timeline
   insertIntoTimeline(currentPlayer.timeline, gameState.heroPlacement.gapIndex, song);
 
   // Score bettors — use betOrder for first-submit priority
   var betResults = {};
-  var artistTokenClaimed = heroArtistCorrect;  // hero has priority
-  var titleTokenClaimed = heroTitleCorrect;     // hero has priority
+  var guessTokenClaimed = heroBothCorrect;  // hero has priority for song guess
   var betOrder = gameState.betOrder || Object.keys(gameState.bets);
 
   for (var b = 0; b < betOrder.length; b++) {
@@ -707,8 +716,7 @@ function triggerReveal() {
     if (!bettor) continue;
 
     var betPositionCorrect = false;
-    var betArtistCorrect = false;
-    var betTitleCorrect = false;
+    var betBothCorrect = false;
 
     // Position bet: costs 1 token only if they chose a position
     if (bet.gapIndex !== null) {
@@ -720,42 +728,40 @@ function triggerReveal() {
       }
     }
 
-    // Artist/title guess: only first correct guesser gets token (hero has priority)
-    if (!artistTokenClaimed && normalizeGuess(bet.guessArtist) === normalizeGuess(song.artist)) {
-      betArtistCorrect = true;
+    // Song guess: must get BOTH artist AND title correct; only first correct guesser gets 1 token
+    var bArtist = normalizeGuess(bet.guessArtist) === normalizeGuess(song.artist);
+    var bTitle = normalizeGuess(bet.guessTitle) === normalizeGuess(song.title);
+    if (!guessTokenClaimed && bArtist && bTitle) {
+      betBothCorrect = true;
       bettor.tokens += 1;
-      artistTokenClaimed = true;
-    }
-    if (!titleTokenClaimed && normalizeGuess(bet.guessTitle) === normalizeGuess(song.title)) {
-      betTitleCorrect = true;
-      bettor.tokens += 1;
-      titleTokenClaimed = true;
+      capTokens(bettor);
+      guessTokenClaimed = true;
     }
 
     betResults[pid] = {
       correct: betPositionCorrect,
       hasBetPosition: bet.gapIndex !== null,
-      artistCorrect: betArtistCorrect,
-      titleCorrect: betTitleCorrect,
-      artistBlocked: !betArtistCorrect && normalizeGuess(bet.guessArtist) === normalizeGuess(song.artist),
-      titleBlocked: !betTitleCorrect && normalizeGuess(bet.guessTitle) === normalizeGuess(song.title),
+      bothCorrect: betBothCorrect,
+      artistMatch: bArtist,
+      titleMatch: bTitle,
+      blocked: bArtist && bTitle && !betBothCorrect,
     };
+
+    capTokens(bettor);
   }
 
-  // Check win condition
-  var winner = players.find(function(p) { return p.score >= winScore; });
-
+  // Win check deferred — only checked at end of full round in nextRound()
   broadcastSync({
     type: 'reveal',
     song: song,
     heroCorrect: heroCorrect,
     heroArtistCorrect: heroArtistCorrect,
     heroTitleCorrect: heroTitleCorrect,
+    heroBothCorrect: heroBothCorrect,
     heroPlacement: gameState.heroPlacement,
     betResults: betResults,
     players: players,
     correctGaps: correctGaps,
-    winner: winner ? { id: winner.id, name: winner.name, score: winner.score } : null,
   });
 }
 
@@ -797,9 +803,10 @@ function handleReveal(payload) {
   var hero = players[gameState.currentPlayerIndex];
   var heroBadges = [];
   if (payload.heroCorrect) heroBadges.push('年代正確 +1分');
-  if (payload.heroArtistCorrect) heroBadges.push('歌手正確 +1籌碼');
-  if (payload.heroTitleCorrect) heroBadges.push('歌名正確 +1籌碼');
-  var heroClass = payload.heroCorrect ? 'result-correct' : 'result-wrong';
+  if (payload.heroBothCorrect) heroBadges.push('猜歌正確 +1籌碼');
+  else if (payload.heroArtistCorrect && !payload.heroTitleCorrect) heroBadges.push('歌手對/歌名錯');
+  else if (!payload.heroArtistCorrect && payload.heroTitleCorrect) heroBadges.push('歌名對/歌手錯');
+  var heroClass = (payload.heroCorrect || payload.heroBothCorrect) ? 'result-correct' : 'result-wrong';
   html += '<li>' + hero.name + ' (主角) <span class="' + heroClass + '">' + (heroBadges.length ? heroBadges.join(', ') : '年代錯誤') + '</span></li>';
 
   // Bet results
@@ -814,37 +821,52 @@ function handleReveal(payload) {
       if (res.correct) badges.push('年代正確 +1分');
       else badges.push('年代錯誤 -1籌碼');
     }
-    if (res.artistCorrect) badges.push('歌手正確 +1籌碼 (搶答最快)');
-    else if (res.artistBlocked) badges.push('歌手正確 但已被搶答');
-    if (res.titleCorrect) badges.push('歌名正確 +1籌碼 (搶答最快)');
-    else if (res.titleBlocked) badges.push('歌名正確 但已被搶答');
-    var resultClass = (res.correct || res.artistCorrect || res.titleCorrect) ? 'result-correct' : 'result-wrong';
+    if (res.bothCorrect) badges.push('猜歌正確 +1籌碼 (最快搶答)');
+    else if (res.blocked) badges.push('猜歌正確 但已被搶答');
+    else if (res.artistMatch && !res.titleMatch) badges.push('歌手對/歌名錯');
+    else if (!res.artistMatch && res.titleMatch) badges.push('歌名對/歌手錯');
+    var resultClass = (res.correct || res.bothCorrect) ? 'result-correct' : 'result-wrong';
     html += '<li>' + p.name + ' <span class="' + resultClass + '">' + (badges.length ? badges.join(', ') : '未參與') + '</span></li>';
   }
   html += '</ul>';
 
-  // Check for winner
-  if (payload.winner) {
-    html += '<div class="winner-announcement">🏆 ' + payload.winner.name + ' 達到 ' + payload.winner.score + ' 分，獲勝！</div>';
-  }
-
   document.getElementById('reveal-content').innerHTML = html;
 
-  // Host shows "next round" button (unless game over)
-  if (payload.winner) {
-    document.getElementById('btn-next-round').style.display = 'none';
-  } else {
-    document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
-  }
+  // Host shows "next round" button
+  document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
 }
 
 // --- Next round ---
 function nextRound() {
   if (!isHost) return;
-  gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % players.length;
+  var nextIndex = (gameState.currentPlayerIndex + 1) % players.length;
+  var isFullRoundEnd = nextIndex === 0; // wrapped around = everyone played
+
+  // Check win condition only at end of a full round
+  if (isFullRoundEnd) {
+    var qualifiers = players.filter(function(p) { return p.score >= winScore; });
+    if (qualifiers.length === 1) {
+      // Clear winner
+      broadcastSync({ type: 'game_over', winner: qualifiers[0], players: players });
+      return;
+    } else if (qualifiers.length > 1) {
+      // Tie — find highest score
+      var maxScore = Math.max.apply(null, qualifiers.map(function(p) { return p.score; }));
+      var topPlayers = qualifiers.filter(function(p) { return p.score === maxScore; });
+      if (topPlayers.length === 1) {
+        broadcastSync({ type: 'game_over', winner: topPlayers[0], players: players });
+        return;
+      }
+      // Multiple tied at max — enter sudden death (continue playing)
+      broadcastSync({ type: 'sudden_death', tiedPlayers: topPlayers.map(function(p) { return p.name; }), players: players });
+      // Don't return — fall through to next turn
+    }
+  }
+
+  gameState.currentPlayerIndex = nextIndex;
   gameState.round += 1;
 
-  const song = drawRandomSong();
+  var song = drawRandomSong();
   if (!song) {
     alert('題庫中的歌曲已全部使用完畢！');
     return;
@@ -861,7 +883,7 @@ function nextRound() {
     round: gameState.round,
     fullSong: song,
     currentSong: { youtubeId: song.youtubeId },
-    players,
+    players: players,
   });
 }
 
@@ -904,6 +926,38 @@ function handleSwapSong(payload) {
     const me = players.find(p => p.id === myId);
     swapBtn.style.display = (me && me.tokens >= 1) ? '' : 'none';
   }
+}
+
+// --- Game over / Sudden death ---
+function handleGameOver(payload) {
+  players = payload.players || players;
+  gameState.phase = 'gameover';
+  renderScoreboard();
+
+  document.getElementById('music-section').style.display = 'none';
+  document.getElementById('guess-section').style.display = 'none';
+  document.getElementById('betting-section').style.display = 'none';
+  document.getElementById('reveal-section').style.display = '';
+
+  var w = payload.winner;
+  var html = '<div class="winner-announcement">🏆 ' + w.name + ' 以 ' + w.score + ' 分獲勝！</div>';
+  html += '<div class="final-scoreboard"><h3 style="margin: 1rem 0 0.5rem; color: var(--text-muted);">最終排名</h3><ul class="reveal-result-list">';
+  var sorted = players.slice().sort(function(a, b) { return b.score - a.score; });
+  for (var i = 0; i < sorted.length; i++) {
+    var medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+    html += '<li>' + medal + ' ' + sorted[i].name + ' <span class="result-correct">' + sorted[i].score + ' 分</span></li>';
+  }
+  html += '</ul></div>';
+  document.getElementById('reveal-content').innerHTML = html;
+  document.getElementById('btn-next-round').style.display = 'none';
+}
+
+function handleSuddenDeath(payload) {
+  players = payload.players || players;
+  renderScoreboard();
+  // Show a brief announcement, then continue
+  var names = payload.tiedPlayers.join('、');
+  alert('⚡ 延長賽！' + names + ' 同分，繼續比賽直到分出勝負！');
 }
 
 // --- Direct score (3 tokens) ---
@@ -962,16 +1016,8 @@ function handleDirectScore(payload) {
   html += '💰 ' + (scorer ? scorer.name : '???') + ' 花費 3 籌碼直接得分！';
   html += '</div>';
 
-  // Check winner
-  var winner = players.find(function(p) { return p.score >= winScore; });
-  if (winner) {
-    html += '<div class="winner-announcement">🏆 ' + winner.name + ' 達到 ' + winner.score + ' 分，獲勝！</div>';
-    document.getElementById('btn-next-round').style.display = 'none';
-  } else {
-    document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
-  }
-
   document.getElementById('reveal-content').innerHTML = html;
+  document.getElementById('btn-next-round').style.display = isHost ? '' : 'none';
 }
 
 // ============================================================
@@ -997,6 +1043,10 @@ function insertIntoTimeline(timeline, gapIndex, song) {
   timeline.splice(gapIndex, 0, { artist: song.artist, title: song.title, year: song.year });
   // Re-sort to maintain order (in case of same year)
   timeline.sort((a, b) => a.year - b.year);
+}
+
+function capTokens(player) {
+  if (player.tokens > CONFIG.MAX_TOKENS) player.tokens = CONFIG.MAX_TOKENS;
 }
 
 function normalizeGuess(str) {
@@ -1025,6 +1075,33 @@ function showScreen(screenId) {
   if (screenId === 'screen-game' && ytReady && !ytPlayer) {
     const vid = gameState.currentSong ? gameState.currentSong.youtubeId : undefined;
     createYTPlayer(vid);
+  }
+}
+
+function generateQRCode(code) {
+  var container = document.getElementById('qr-container');
+  if (!container) return;
+  var url = window.location.origin + window.location.pathname + '?room=' + code;
+  try {
+    var qr = qrcode(0, 'M');
+    qr.addData(url);
+    qr.make();
+    // Replace canvas with generated image
+    var img = qr.createImgTag(5, 8);
+    var qrEl = container.querySelector('.qr-img');
+    if (qrEl) qrEl.remove();
+    var div = document.createElement('div');
+    div.className = 'qr-img';
+    div.innerHTML = img;
+    // Style the image
+    var imgEl = div.querySelector('img');
+    if (imgEl) {
+      imgEl.style.borderRadius = '8px';
+      imgEl.style.filter = 'invert(1) hue-rotate(180deg)';
+    }
+    container.insertBefore(div, container.firstChild);
+  } catch (e) {
+    console.warn('QR generation failed:', e);
   }
 }
 
@@ -1151,6 +1228,7 @@ function initEventListeners() {
 
     document.getElementById('display-room-code').textContent = roomCode;
     showScreen('screen-waiting');
+    generateQRCode(roomCode);
     joinChannel(roomCode);
     renderWaitingRoom();
   });
@@ -1179,6 +1257,7 @@ function initEventListeners() {
 
     document.getElementById('display-room-code').textContent = roomCode;
     showScreen('screen-waiting');
+    generateQRCode(roomCode);
     joinChannel(roomCode);
     renderWaitingRoom();
   });
@@ -1229,6 +1308,13 @@ function initApp() {
   loadYouTubeAPI();
   loadSongDatabase();
   initEventListeners();
+
+  // Auto-fill room code from URL ?room=XXXXX
+  var params = new URLSearchParams(window.location.search);
+  var roomParam = params.get('room');
+  if (roomParam) {
+    document.getElementById('room-code-input').value = roomParam.toUpperCase();
+  }
 }
 
 if (document.readyState === 'loading') {

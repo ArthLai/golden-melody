@@ -154,6 +154,42 @@ input, select {
   white-space: nowrap;
 }
 
+.game-rules-brief {
+  margin-bottom: 1.5rem;
+  text-align: left;
+}
+.game-rules-brief details {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 1rem;
+}
+.game-rules-brief summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+.game-rules-brief ul {
+  margin-top: 0.6rem;
+  padding-left: 1.2rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+.game-rules-brief li strong {
+  color: var(--success);
+}
+
+.section-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+
 .loading-status {
   text-align: center;
   margin-top: 1rem;
