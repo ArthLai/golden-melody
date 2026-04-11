@@ -283,16 +283,16 @@ input, select {
 
 .timeline-panel {
   flex: 1;
-  padding: 1.25rem;
+  padding: 1.5rem 2rem;
   overflow-y: auto;
   max-height: 100vh;
   border-right: 1px solid var(--glass-border);
   background: rgba(15, 15, 26, 0.4);
 }
 .control-panel {
-  width: 380px;
-  min-width: 320px;
-  padding: 1.25rem;
+  width: 480px;
+  min-width: 380px;
+  padding: 1.5rem;
   overflow-y: auto;
   max-height: 100vh;
   background: rgba(15, 15, 26, 0.4);
@@ -831,6 +831,218 @@ input, select {
 }
 .reveal-answer.reveal-animate {
   animation: revealIn 0.4s ease-out;
+}
+
+/* ===== Game Menu (in-game) ===== */
+.game-menu-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.game-menu-bar .game-room-info {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.game-menu-bar .game-room-info span {
+  color: var(--accent);
+  font-family: monospace;
+  letter-spacing: 1px;
+}
+.btn-game-menu {
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-game-menu:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.game-menu-dropdown {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  min-width: 160px;
+  overflow: hidden;
+}
+.game-menu-dropdown.open {
+  display: block;
+}
+.game-menu-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  text-align: left;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.game-menu-dropdown button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.game-menu-dropdown button.menu-danger {
+  color: var(--danger);
+}
+.game-menu-dropdown button.menu-danger:hover {
+  background: rgba(225, 112, 85, 0.12);
+}
+.game-menu-wrapper {
+  position: relative;
+}
+
+/* Confirm dialog overlay */
+.confirm-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+.confirm-overlay.open {
+  display: flex;
+}
+.confirm-dialog {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  max-width: 340px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+.confirm-dialog h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1.1rem;
+}
+.confirm-dialog p {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+.confirm-dialog .confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.confirm-dialog .confirm-actions button {
+  flex: 1;
+  padding: 0.6rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.confirm-dialog .btn-confirm-cancel {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+.confirm-dialog .btn-confirm-ok {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ===== Desktop enhancements (>768px) ===== */
+@media (min-width: 769px) {
+  .game-info-bar {
+    font-size: 0.95rem;
+    margin-bottom: 1rem;
+  }
+  .scoreboard {
+    gap: 0.6rem;
+    margin-bottom: 1.25rem;
+  }
+  .score-chip {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+  }
+  .timeline {
+    padding: 0.6rem;
+    gap: 0.5rem;
+    min-height: 90px;
+  }
+  .timeline-card {
+    min-width: 110px;
+    padding: 0.6rem 0.8rem;
+  }
+  .timeline-card .card-year {
+    font-size: 1.1rem;
+  }
+  .timeline-card .card-title {
+    font-size: 0.8rem;
+  }
+  .timeline-card .card-artist {
+    font-size: 0.7rem;
+  }
+  .timeline-gap {
+    width: 40px;
+    min-height: 76px;
+    font-size: 1.5rem;
+  }
+  .guess-section,
+  .betting-section,
+  .reveal-section {
+    padding: 1.25rem;
+  }
+  .guess-section h3,
+  .betting-section h3 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .guess-section input,
+  .bet-guess-row input {
+    padding: 0.7rem 0.8rem;
+  }
+  .playback-controls {
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .btn-play {
+    padding: 0.7rem 1.8rem;
+    font-size: 1rem;
+  }
+  .timer-display {
+    font-size: 1.6rem;
+  }
+  .phase-status {
+    font-size: 1.05rem;
+    padding: 0.5rem 0.75rem;
+  }
+}
+
+/* ===== Large desktop (1440px+) ===== */
+@media (min-width: 1440px) {
+  .control-panel {
+    width: 540px;
+  }
+  .timeline-panel {
+    padding: 2rem 3rem;
+  }
+  .lobby-container {
+    max-width: 480px;
+  }
+  .waiting-container {
+    max-width: 560px;
+  }
 }
 
 /* ===== Animations ===== */

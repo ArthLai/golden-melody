@@ -93,6 +93,7 @@ var MODE_CONFIG = {
     icon: '🎬',
     useMask: false,
     playFromStart: true,
+    allPlayersVideo: true,
     guessFields: ['title'],
     guessLabels: { title: '猜電影名稱' },
     betGuessLabels: { title: '搶答電影名稱' },
@@ -117,6 +118,7 @@ var MODE_CONFIG = {
     icon: '📺',
     useMask: false,
     playFromStart: true,
+    allPlayersVideo: true,
     guessFields: ['artist', 'title'],
     guessLabels: { artist: '猜品牌', title: '猜商品' },
     betGuessLabels: { artist: '搶答品牌', title: '搶答商品' },
@@ -135,6 +137,31 @@ var MODE_CONFIG = {
     maskIcon: '📺',
     noTokenBetHint: '籌碼不足，無法下注位置（可猜品牌/商品）',
   },
+  anime: {
+    title: '動漫猜猜王',
+    subtitle: '多人連線猜動漫桌遊',
+    icon: '🎌',
+    useMask: true,
+    playFromStart: true,
+    allPlayersVideo: false,
+    guessFields: ['artist', 'title'],
+    guessLabels: { artist: '猜動漫名稱', title: '猜角色名稱' },
+    betGuessLabels: { artist: '搶答動漫名稱', title: '搶答角色名稱' },
+    revealFormat: function(song) { return song.artist + ' — ' + song.title; },
+    cardDisplay: function(card) {
+      return '<div class="card-year">' + card.year + '</div><div class="card-title">' + card.title + '</div><div class="card-artist">' + card.artist + '</div>';
+    },
+    phaseHero: '📍 選擇時間軸位置放入這部動漫',
+    phaseSpectator: function(name) { return '🎌 ' + name + ' 正在聽動漫片段...'; },
+    guessHint: '聽完片段後，點擊時間軸上的「＋」將動漫插入你認為正確的年代位置。猜對動漫＋角色可額外獲得 1 籌碼',
+    betHint: '點擊「＋」選擇你認為正確的位置（-1 籌碼），再點一次取消',
+    betGuessHint: '猜對動漫＋角色 → 最快答對者 +1 籌碼',
+    swapLabel: '🔄 換片 (-1 籌碼)',
+    guessSectionTitle: '🎯 猜年代',
+    betSectionTitle: '🎰 下注猜年代',
+    maskIcon: '🎌',
+    noTokenBetHint: '籌碼不足，無法下注位置（可猜動漫/角色）',
+  },
 };
 
 function getModeConfig() {
@@ -146,6 +173,8 @@ function getRevealBadgeText() {
     return { guessCorrect: '猜片正確', artistRight: null, titleRight: '片名對', artistWrong: null, titleWrong: '片名錯' };
   } else if (gameMode === 'ad') {
     return { guessCorrect: '猜對品牌商品', artistRight: '品牌對', titleRight: '商品對', artistWrong: '品牌錯', titleWrong: '商品錯' };
+  } else if (gameMode === 'anime') {
+    return { guessCorrect: '猜對動漫角色', artistRight: '動漫對', titleRight: '角色對', artistWrong: '動漫錯', titleWrong: '角色錯' };
   }
   return { guessCorrect: '猜歌正確', artistRight: '歌手對', titleRight: '歌名對', artistWrong: '歌手錯', titleWrong: '歌名錯' };
 }
@@ -181,6 +210,16 @@ function renderModeRules() {
       '<li>根據廣告年代，將其放入自己的時間軸正確位置</li>' +
       '<li>放置正確 → <strong>+1 分</strong></li>' +
       '<li>同時猜對品牌＋商品 → <strong>+1 籌碼</strong>（上限 5 枚）</li>' +
+      '<li>其他玩家可下注猜年代位置（-1 籌碼，猜對 +1 分 +2 籌碼）</li>' +
+      '<li>技能：🔄 換片 (-1)、💰 直接得分 (-3)</li>' +
+      '<li>率先達到指定分數者獲勝（整輪結束後判定）</li>' +
+      '</ul></details>';
+  } else if (gameMode === 'anime') {
+    rules = '<details open><summary>📖 遊戲規則</summary><ul>' +
+      '<li>每位玩家輪流聆聽一段動漫音樂片段（30秒，畫面隱藏）</li>' +
+      '<li>根據動漫年代，將其放入自己的時間軸正確位置</li>' +
+      '<li>放置正確 → <strong>+1 分</strong></li>' +
+      '<li>同時猜對動漫名稱＋角色 → <strong>+1 籌碼</strong>（上限 5 枚）</li>' +
       '<li>其他玩家可下注猜年代位置（-1 籌碼，猜對 +1 分 +2 籌碼）</li>' +
       '<li>技能：🔄 換片 (-1)、💰 直接得分 (-3)</li>' +
       '<li>率先達到指定分數者獲勝（整輪結束後判定）</li>' +
@@ -248,6 +287,17 @@ function extractYouTubeId(raw) {
   return null;
 }
 
+// Parse time string to seconds. Supports: "1:30", "01:30", "90", "1:02:30"
+function parseTimeToSeconds(str) {
+  if (!str) return 0;
+  str = str.trim();
+  var parts = str.split(':').map(Number);
+  if (parts.some(isNaN)) return 0;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] || 0;
+}
+
 function parseCSV(text) {
   // Strip BOM
   const clean = text.replace(/^\uFEFF/, '');
@@ -259,13 +309,20 @@ function parseCSV(text) {
     // Simple CSV parse (handles commas inside quotes)
     const cols = parseCSVLine(lines[i]);
     if (cols.length < 5) continue;
-    const [language, artist, title, yearRaw, ytRaw] = cols.map(c => c.trim());
+    const mapped = cols.map(c => c.trim());
+    const language = mapped[0], artist = mapped[1], title = mapped[2], yearRaw = mapped[3], ytRaw = mapped[4];
+    // Columns G (index 6) and H (index 7): startTime and endTime (optional, for anime mode)
+    const startTimeRaw = mapped[6] || '';
+    const endTimeRaw = mapped[7] || '';
     if (!artist || !title || !yearRaw) continue;
     const year = parseInt(yearRaw, 10);
     if (isNaN(year)) continue;
     const youtubeId = extractYouTubeId(ytRaw);
     if (!youtubeId) continue;
-    rows.push({ language: language || '未知', artist, title, year, youtubeId });
+    var entry = { language: language || '未知', artist, title, year, youtubeId };
+    if (startTimeRaw) entry.startTime = parseTimeToSeconds(startTimeRaw);
+    if (endTimeRaw) entry.endTime = parseTimeToSeconds(endTimeRaw);
+    rows.push(entry);
   }
   return rows;
 }
@@ -330,11 +387,12 @@ async function loadSongDatabase() {
 // Mode-to-language mapping:
 // 語言 column holds: 中文, 粵語, 台語, ... (music), 電影 (movie), 廣告 (ad)
 var MODE_LANGUAGES = {
-  music: null,    // null = everything EXCEPT movie/ad keywords
+  music: null,    // null = everything EXCEPT movie/ad/anime keywords
   movie: ['電影'],
   ad: ['廣告'],
+  anime: ['動漫'],
 };
-var NON_MUSIC_KEYWORDS = ['電影', '廣告'];
+var NON_MUSIC_KEYWORDS = ['電影', '廣告', '動漫'];
 
 function getModePool() {
   var modeLangs = MODE_LANGUAGES[gameMode];
@@ -487,6 +545,15 @@ function handleSyncMessage(payload) {
     case 'rejoin_state':
       handleRejoinState(payload);
       break;
+    case 'playback_start':
+      handlePlaybackStart();
+      break;
+    case 'end_game':
+      handleEndGame(payload);
+      break;
+    case 'restart_game':
+      handleRestartGame(payload);
+      break;
   }
 }
 
@@ -587,7 +654,19 @@ function onPlayerStateChange(event) {
   if (event.data === YT.PlayerState.PLAYING && !hasSeekStarted && !isRevealPlayback) {
     hasSeekStarted = true;
     var modeConf = getModeConfig();
-    if (modeConf.playFromStart) {
+    var song = gameState.currentSong;
+    if (song && song.startTime != null && song.startTime > 0) {
+      // Anime mode (or any mode with explicit start/end time from DB)
+      currentRandomStart = song.startTime;
+      ytPlayer.seekTo(song.startTime, true);
+      // Override playback duration if endTime is specified
+      if (song.endTime && song.endTime > song.startTime) {
+        var clipDuration = song.endTime - song.startTime;
+        if (clipDuration < CONFIG.PLAYBACK_SECONDS) {
+          secondsLeft = Math.ceil(clipDuration);
+        }
+      }
+    } else if (modeConf.playFromStart) {
       // Movie/ad mode: play from start, no random seek
       currentRandomStart = 0;
     } else {
@@ -611,7 +690,14 @@ function onPlayerStateChange(event) {
 }
 
 function startPlaybackTimer() {
-  secondsLeft = CONFIG.PLAYBACK_SECONDS;
+  // Use clip duration if available (anime mode with startTime/endTime)
+  var song = gameState.currentSong;
+  if (song && song.startTime != null && song.endTime && song.endTime > song.startTime) {
+    var clipDuration = Math.ceil(song.endTime - song.startTime);
+    secondsLeft = Math.min(clipDuration, CONFIG.PLAYBACK_SECONDS);
+  } else {
+    secondsLeft = CONFIG.PLAYBACK_SECONDS;
+  }
   updateTimerDisplay();
   clearInterval(playbackTimer);
   playbackTimer = setInterval(function() {
@@ -767,6 +853,55 @@ function startGame() {
   });
 }
 
+function restartGame() {
+  if (!isHost) return;
+  stopPhaseTimer();
+  stopPlayback();
+
+  // Reset all player scores/tokens/timelines
+  players.forEach(function(p) {
+    p.score = 0;
+    p.tokens = CONFIG.INITIAL_TOKENS;
+    p.timeline = [];
+  });
+
+  gameState.phase = 'playing';
+  gameState.currentPlayerIndex = 0;
+  gameState.round = 1;
+  gameState.usedSongIds = [];
+  gameState.betOrder = [];
+
+  // Give each player an initial year card
+  var pool = getFilteredSongs();
+  players.forEach(function(p) {
+    if (pool.length === 0) return;
+    var idx = Math.floor(Math.random() * pool.length);
+    var initSong = pool[idx];
+    p.timeline = [{ artist: initSong.artist, title: initSong.title, year: initSong.year }];
+    gameState.usedSongIds.push(initSong.youtubeId);
+    pool = pool.filter(function(s) { return s.youtubeId !== initSong.youtubeId; });
+  });
+
+  var song = drawRandomSong();
+  if (!song) { alert('題庫中沒有可用歌曲！'); return; }
+  gameState.currentSong = song;
+  gameState.usedSongIds.push(song.youtubeId);
+  gameState.heroPlacement = null;
+  gameState.bets = {};
+
+  broadcastSync({
+    type: 'restart_game',
+    players: players,
+    winScore: winScore,
+    gameMode: gameMode,
+    gameState: {
+      ...gameState,
+      currentSong: { youtubeId: song.youtubeId },
+    },
+    fullSong: song,
+  });
+}
+
 function handleGameStart(payload) {
   gameMode = payload.gameMode || 'music';
   players = payload.players.map(p => ({
@@ -824,13 +959,14 @@ function setupTurnUI() {
   renderScoreboard();
 
   // Reset sections visibility
-  document.getElementById('music-section').style.display = amHero ? '' : 'none';
+  var mc = getModeConfig();
+  var showVideoToAll = mc.allPlayersVideo && !amHero;
+  document.getElementById('music-section').style.display = (amHero || showVideoToAll) ? '' : 'none';
   document.getElementById('guess-section').style.display = amHero ? '' : 'none';
   document.getElementById('betting-section').style.display = 'none';
   document.getElementById('reveal-section').style.display = 'none';
 
   // Phase status
-  var mc = getModeConfig();
   if (amHero) {
     updatePhaseStatus(mc.phaseHero);
   } else {
@@ -922,6 +1058,30 @@ function setupTurnUI() {
       mySection.style.display = '';
       document.getElementById('my-timeline-label').textContent = '我的時間軸';
       renderTimeline('my-timeline', me.timeline, false);
+    }
+
+    // For movie/ad modes: load video muted for spectators
+    if (showVideoToAll && gameState.currentSong) {
+      hasSeekStarted = false;
+      // Hide playback controls for spectators (hero controls playback)
+      document.getElementById('btn-play').disabled = true;
+      document.getElementById('btn-play').style.display = 'none';
+      document.getElementById('btn-replay').style.display = 'none';
+      document.getElementById('btn-swap').style.display = 'none';
+      var directBtn2 = document.getElementById('btn-direct-score');
+      if (directBtn2) directBtn2.style.display = 'none';
+      secondsLeft = CONFIG.PLAYBACK_SECONDS;
+      updateTimerDisplay();
+
+      if (ytReady && !ytPlayer) {
+        createYTPlayer(gameState.currentSong.youtubeId);
+      } else if (ytPlayer) {
+        try {
+          ytPlayer.mute();
+          ytPlayer.setVolume(0);
+        } catch (e) { /* ignore */ }
+        ytPlayer.cueVideoById(gameState.currentSong.youtubeId);
+      }
     }
 
     // Show waiting message
@@ -1419,6 +1579,56 @@ function handleGameOver(payload) {
   document.getElementById('btn-back-lobby').style.display = '';
 }
 
+function handlePlaybackStart() {
+  // Spectators in movie/ad mode: start muted playback
+  var currentPlayer = players[gameState.currentPlayerIndex];
+  if (!currentPlayer || currentPlayer.id === myId) return; // hero ignores this
+  var mc = getModeConfig();
+  if (!mc.allPlayersVideo) return;
+  if (ytPlayer && typeof ytPlayer.playVideo === 'function') {
+    try {
+      ytPlayer.mute();
+      ytPlayer.setVolume(0);
+    } catch (e) { /* ignore */ }
+    ytPlayer.playVideo();
+    // Start spectator timer display
+    secondsLeft = CONFIG.PLAYBACK_SECONDS;
+    updateTimerDisplay();
+    clearInterval(playbackTimer);
+    playbackTimer = setInterval(function() {
+      secondsLeft--;
+      updateTimerDisplay();
+      if (secondsLeft <= 0) {
+        clearInterval(playbackTimer);
+        if (ytPlayer) ytPlayer.pauseVideo();
+      }
+    }, 1000);
+  }
+}
+
+function handleEndGame(payload) {
+  stopPhaseTimer();
+  stopPlayback();
+  clearSession();
+  if (channel) {
+    try { supabaseClient.removeChannel(channel); } catch (e) { /* ignore */ }
+    channel = null;
+  }
+  players = [];
+  roomCode = '';
+  myId = '';
+  isHost = false;
+  gameState.phase = 'waiting';
+  showScreen('screen-lobby');
+  alert('房主已結束遊戲');
+}
+
+function handleRestartGame(payload) {
+  // Host sends a restart — triggers a fresh game start with same players
+  // Non-host players receive this and handle like game_start
+  handleGameStart(payload);
+}
+
 function handleSuddenDeath(payload) {
   players = payload.players || players;
   renderScoreboard();
@@ -1804,6 +2014,15 @@ function showScreen(screenId) {
     const vid = gameState.currentSong ? gameState.currentSong.youtubeId : undefined;
     createYTPlayer(vid);
   }
+
+  // Show room code and menu visibility in game screen
+  if (screenId === 'screen-game') {
+    var gameRoomEl = document.getElementById('game-room-code');
+    if (gameRoomEl) gameRoomEl.textContent = roomCode;
+    // Only host sees menu options
+    var menuBtn = document.getElementById('btn-game-menu');
+    if (menuBtn) menuBtn.style.display = isHost ? '' : 'none';
+  }
 }
 
 function generateQRCode(code) {
@@ -2063,6 +2282,11 @@ function initEventListeners() {
     if (ytPlayer && typeof ytPlayer.playVideo === 'function') {
       ytPlayer.playVideo();
       document.getElementById('btn-play').disabled = true;
+      // For movie/ad: notify spectators to start their muted playback
+      var mc = getModeConfig();
+      if (mc.allPlayersVideo) {
+        broadcastSync({ type: 'playback_start' });
+      }
     }
   });
 
@@ -2175,6 +2399,69 @@ function initEventListeners() {
       }, 1000);
       document.getElementById('btn-replay').style.display = 'none';
     }
+  });
+
+  // Game menu toggle
+  document.getElementById('btn-game-menu').addEventListener('click', function(e) {
+    e.stopPropagation();
+    var dropdown = document.getElementById('game-menu-dropdown');
+    dropdown.classList.toggle('open');
+  });
+  // Close menu on outside click
+  document.addEventListener('click', function() {
+    var dropdown = document.getElementById('game-menu-dropdown');
+    if (dropdown) dropdown.classList.remove('open');
+  });
+
+  // Confirm dialog helper
+  var pendingConfirmAction = null;
+  document.getElementById('btn-confirm-cancel').addEventListener('click', function() {
+    document.getElementById('confirm-overlay').classList.remove('open');
+    pendingConfirmAction = null;
+  });
+  document.getElementById('btn-confirm-ok').addEventListener('click', function() {
+    document.getElementById('confirm-overlay').classList.remove('open');
+    if (pendingConfirmAction) pendingConfirmAction();
+    pendingConfirmAction = null;
+  });
+
+  function showConfirm(title, message, onConfirm) {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-message').textContent = message;
+    pendingConfirmAction = onConfirm;
+    document.getElementById('confirm-overlay').classList.add('open');
+  }
+
+  // Restart game (host only)
+  document.getElementById('btn-menu-restart').addEventListener('click', function() {
+    document.getElementById('game-menu-dropdown').classList.remove('open');
+    if (!isHost) { alert('只有房主可以執行此操作'); return; }
+    showConfirm('重新開始', '確定要重新開始遊戲嗎？所有玩家的分數將歸零。', function() {
+      restartGame();
+    });
+  });
+
+  // End game (host only)
+  document.getElementById('btn-menu-end').addEventListener('click', function() {
+    document.getElementById('game-menu-dropdown').classList.remove('open');
+    if (!isHost) { alert('只有房主可以執行此操作'); return; }
+    showConfirm('結束遊戲', '確定要結束遊戲嗎？所有玩家將返回大廳。', function() {
+      broadcastSync({ type: 'end_game' });
+      // Host also returns to lobby
+      stopPhaseTimer();
+      stopPlayback();
+      clearSession();
+      if (channel) {
+        try { supabaseClient.removeChannel(channel); } catch (e) { /* ignore */ }
+        channel = null;
+      }
+      players = [];
+      roomCode = '';
+      myId = '';
+      isHost = false;
+      gameState.phase = 'waiting';
+      showScreen('screen-lobby');
+    });
   });
 }
 

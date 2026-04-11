@@ -26,6 +26,7 @@
           <option value="music">🎵 金曲猜歌王</option>
           <option value="movie">🎬 電影猜猜王</option>
           <option value="ad">📺 廣告猜猜王</option>
+          <option value="anime">🎌 動漫猜猜王</option>
         </select>
 
         <label for="lang-select">分類篩選</label>
@@ -76,6 +77,16 @@
 
       <!-- 左側 / 上方：時間軸 -->
       <div class="timeline-panel">
+        <div class="game-menu-bar">
+          <div class="game-room-info">房間 <span id="game-room-code"></span></div>
+          <div class="game-menu-wrapper">
+            <button class="btn-game-menu" id="btn-game-menu" title="遊戲選單">⋯</button>
+            <div class="game-menu-dropdown" id="game-menu-dropdown">
+              <button id="btn-menu-restart">🔄 重新開始</button>
+              <button id="btn-menu-end" class="menu-danger">🚪 結束遊戲</button>
+            </div>
+          </div>
+        </div>
         <div class="game-info-bar">
           <span id="current-turn-label">輪到：---</span>
           <span id="win-score-label" class="win-score-label"></span>
@@ -147,6 +158,18 @@
           <button id="btn-next-round" class="btn-primary" style="display:none;">下一回合</button>
           <button id="btn-back-lobby" class="btn-primary" style="display:none; margin-top:0.75rem;">🏠 回到大廳</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm dialog -->
+  <div id="confirm-overlay" class="confirm-overlay">
+    <div class="confirm-dialog">
+      <h3 id="confirm-title">確認</h3>
+      <p id="confirm-message">確定要執行此操作嗎？</p>
+      <div class="confirm-actions">
+        <button class="btn-confirm-cancel" id="btn-confirm-cancel">取消</button>
+        <button class="btn-confirm-ok" id="btn-confirm-ok">確定</button>
       </div>
     </div>
   </div>
