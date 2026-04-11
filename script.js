@@ -403,6 +403,11 @@ function generateRoomCode() {
 }
 
 function joinChannel(code) {
+  // Clean up any existing channel first (e.g. from attemptRejoin)
+  if (channel) {
+    try { supabaseClient.removeChannel(channel); } catch (e) { /* ignore */ }
+    channel = null;
+  }
   roomCode = code;
   channel = supabaseClient.channel(`room-${code}`, {
     config: { broadcast: { self: true } },
@@ -486,6 +491,7 @@ function handleSyncMessage(payload) {
 // C. YOUTUBE PLAYER MODULE
 // ============================================================
 function loadYouTubeAPI() {
+  if (document.querySelector('script[src*="youtube.com/iframe_api"]')) return;
   const tag = document.createElement('script');
   tag.src = 'https://www.youtube.com/iframe_api';
   document.head.appendChild(tag);
@@ -2118,15 +2124,19 @@ function initApp() {
     document.getElementById('room-code-input').value = roomParam.toUpperCase();
   }
 
-  // Attempt to rejoin saved session
+  // Attempt to rejoin saved session (only pre-fill name, don't auto-connect)
   var saved = getSavedSession();
-  if (saved && saved.myId && saved.roomCode) {
+  if (saved && saved.myName) {
+    document.getElementById('player-name').value = saved.myName;
+  }
+  // Auto-rejoin only if the page was NOT manually navigated to (no fresh load intent)
+  // We detect this by checking if there's a ?rejoin param or if the session is very recent (< 30s)
+  if (saved && saved.myId && saved.roomCode && (Date.now() - saved.timestamp < 30000)) {
     myId = saved.myId;
     myName = saved.myName;
     roomCode = saved.roomCode;
     isHost = saved.isHost || false;
 
-    document.getElementById('player-name').value = myName;
     document.getElementById('display-room-code').textContent = roomCode;
 
     // Show reconnecting notice
@@ -2137,6 +2147,26 @@ function initApp() {
     }
 
     attemptRejoin();
+
+    // Timeout: if no response in 5 seconds, give up and stay in lobby
+    setTimeout(function() {
+      var currentScreen = document.querySelector('.screen.active');
+      if (currentScreen && currentScreen.id === 'screen-lobby') {
+        // Still in lobby — rejoin didn't work, clean up
+        if (channel) {
+          try { supabaseClient.removeChannel(channel); } catch (e) { /* ignore */ }
+          channel = null;
+        }
+        clearSession();
+        myId = '';
+        roomCode = '';
+        var el = document.getElementById('loading-status');
+        if (el && el.textContent.indexOf('重新連線') >= 0) {
+          el.textContent = '題庫載入完成！共 ' + getModePool().length + ' 筆';
+          el.className = 'loading-status loaded';
+        }
+      }
+    }, 5000);
   }
 
   // Detect app resume (mobile tab switch / screen lock)
