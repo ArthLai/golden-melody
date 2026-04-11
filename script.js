@@ -2078,6 +2078,60 @@ function initEventListeners() {
     showScreen('screen-lobby');
   });
 
+  // Rejoin button — manual reconnection
+  document.getElementById('btn-rejoin').addEventListener('click', function() {
+    var saved = getSavedSession();
+    if (!saved || !saved.myId || !saved.roomCode) {
+      document.getElementById('rejoin-section').style.display = 'none';
+      return;
+    }
+    myId = saved.myId;
+    myName = saved.myName || document.getElementById('player-name').value.trim();
+    roomCode = saved.roomCode;
+    isHost = saved.isHost || false;
+
+    // Hide rejoin section, show connecting status
+    document.getElementById('rejoin-section').style.display = 'none';
+    var loadingEl = document.getElementById('loading-status');
+    if (loadingEl) {
+      loadingEl.textContent = '正在重新連線到房間 ' + roomCode + '...';
+      loadingEl.style.display = '';
+      loadingEl.className = 'loading-status';
+    }
+
+    attemptRejoin();
+
+    // Timeout: if no response in 5 seconds, give up
+    setTimeout(function() {
+      var currentScreen = document.querySelector('.screen.active');
+      if (currentScreen && currentScreen.id === 'screen-lobby') {
+        if (channel) {
+          try { supabaseClient.removeChannel(channel); } catch (e) { /* ignore */ }
+          channel = null;
+        }
+        clearSession();
+        myId = '';
+        roomCode = '';
+        if (loadingEl) {
+          loadingEl.textContent = '重新連線失敗（房間可能已關閉）';
+          loadingEl.className = 'loading-status error';
+          setTimeout(function() {
+            if (isGoogleSheetLoaded) {
+              loadingEl.textContent = '題庫載入完成！共 ' + getModePool().length + ' 筆';
+              loadingEl.className = 'loading-status loaded';
+            }
+          }, 2000);
+        }
+      }
+    }, 5000);
+  });
+
+  // Dismiss rejoin
+  document.getElementById('btn-rejoin-dismiss').addEventListener('click', function() {
+    document.getElementById('rejoin-section').style.display = 'none';
+    clearSession();
+  });
+
   // Copy room code button
   document.getElementById('btn-copy-code').addEventListener('click', function() {
     var btn = document.getElementById('btn-copy-code');
@@ -2141,54 +2195,14 @@ function initApp() {
     document.getElementById('room-code-input').value = roomParam.toUpperCase();
   }
 
-  // Attempt to rejoin saved session (only pre-fill name, don't auto-connect)
+  // Check for saved session — show manual rejoin button instead of auto-connecting
   var saved = getSavedSession();
   if (saved && saved.myName) {
     document.getElementById('player-name').value = saved.myName;
   }
-  // Auto-rejoin only if the page was NOT manually navigated to (no fresh load intent)
-  // We detect this by checking if there's a ?rejoin param or if the session is very recent (< 30s)
-  if (saved && saved.myId && saved.roomCode && (Date.now() - saved.timestamp < 30000)) {
-    myId = saved.myId;
-    myName = saved.myName;
-    roomCode = saved.roomCode;
-    isHost = saved.isHost || false;
-
-    document.getElementById('display-room-code').textContent = roomCode;
-
-    // Show reconnecting notice
-    var loadingEl = document.getElementById('loading-status');
-    if (loadingEl) {
-      loadingEl.textContent = '正在重新連線到房間 ' + roomCode + '...';
-      loadingEl.style.display = '';
-    }
-
-    attemptRejoin();
-
-    // Timeout: if no response in 5 seconds, give up and stay in lobby
-    setTimeout(function() {
-      var currentScreen = document.querySelector('.screen.active');
-      if (currentScreen && currentScreen.id === 'screen-lobby') {
-        // Still in lobby — rejoin didn't work, clean up
-        if (channel) {
-          try { supabaseClient.removeChannel(channel); } catch (e) { /* ignore */ }
-          channel = null;
-        }
-        clearSession();
-        myId = '';
-        roomCode = '';
-        var el = document.getElementById('loading-status');
-        if (el && el.textContent.indexOf('重新連線') >= 0) {
-          if (isGoogleSheetLoaded) {
-            el.textContent = '題庫載入完成！共 ' + getModePool().length + ' 筆';
-            el.className = 'loading-status loaded';
-          } else {
-            el.textContent = '正在載入題庫...';
-            el.className = 'loading-status';
-          }
-        }
-      }
-    }, 5000);
+  if (saved && saved.myId && saved.roomCode) {
+    document.getElementById('rejoin-room-code').textContent = saved.roomCode;
+    document.getElementById('rejoin-section').style.display = '';
   }
 
   // Detect app resume (mobile tab switch / screen lock)
