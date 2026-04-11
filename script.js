@@ -417,13 +417,16 @@ function joinChannel(code) {
     handleSyncMessage(payload);
   });
 
-  channel.subscribe((status) => {
+  channel.subscribe((status, err) => {
     if (status === 'SUBSCRIBED') {
       // announce self
       broadcastSync({
         type: 'player_join',
         player: { id: myId, name: myName, isHost },
       });
+    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      console.error('Channel subscribe failed:', status, err);
+      alert('連線失敗，請重試。(' + status + ')');
     }
   });
 }
@@ -1985,6 +1988,13 @@ function initEventListeners() {
     if (!myName) { alert('請輸入暱稱'); return; }
     if (!isGoogleSheetLoaded) { alert('題庫尚未載入完成'); return; }
 
+    // Clear any stale state from previous sessions
+    clearSession();
+    if (channel) {
+      try { supabaseClient.removeChannel(channel); } catch (e) { /* ignore */ }
+      channel = null;
+    }
+
     myId = generateId();
     isHost = true;
     roomCode = generateRoomCode();
@@ -2014,6 +2024,13 @@ function initEventListeners() {
 
     const code = document.getElementById('room-code-input').value.trim().toUpperCase();
     if (!code) { alert('請輸入房間代碼'); return; }
+
+    // Clear any stale state from previous sessions
+    clearSession();
+    if (channel) {
+      try { supabaseClient.removeChannel(channel); } catch (e) { /* ignore */ }
+      channel = null;
+    }
 
     myId = generateId();
     isHost = false;
@@ -2162,21 +2179,29 @@ function initApp() {
         roomCode = '';
         var el = document.getElementById('loading-status');
         if (el && el.textContent.indexOf('重新連線') >= 0) {
-          el.textContent = '題庫載入完成！共 ' + getModePool().length + ' 筆';
-          el.className = 'loading-status loaded';
+          if (isGoogleSheetLoaded) {
+            el.textContent = '題庫載入完成！共 ' + getModePool().length + ' 筆';
+            el.className = 'loading-status loaded';
+          } else {
+            el.textContent = '正在載入題庫...';
+            el.className = 'loading-status';
+          }
         }
       }
     }, 5000);
   }
 
   // Detect app resume (mobile tab switch / screen lock)
+  // Only reconnect if we're actually in a game screen (not lobby)
   document.addEventListener('visibilitychange', function() {
-    if (document.visibilityState === 'visible' && roomCode && myId) {
-      touchSession();
-      // Check if channel is still alive; if not, reconnect
-      if (!channel || channel.state !== 'joined') {
-        attemptRejoin();
-      }
+    if (document.visibilityState !== 'visible') return;
+    var activeScreen = document.querySelector('.screen.active');
+    if (!activeScreen || activeScreen.id === 'screen-lobby') return;
+    if (!roomCode || !myId) return;
+    touchSession();
+    // Check if channel is disconnected
+    if (!channel) {
+      attemptRejoin();
     }
   });
 }
