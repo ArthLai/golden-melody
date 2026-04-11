@@ -1016,6 +1016,7 @@ function setupTurnUI() {
     renderTimeline('timeline', currentPlayer.timeline, true);
     document.getElementById('my-timeline-section').style.display = 'none';
     document.getElementById('btn-play').disabled = false;
+    document.getElementById('btn-play').style.display = '';
     document.getElementById('btn-replay').style.display = 'none';
     document.getElementById('btn-submit-placement').disabled = true;
     document.getElementById('guess-artist').value = '';
@@ -2425,9 +2426,14 @@ function initEventListeners() {
     pendingConfirmAction = null;
   });
 
-  function showConfirm(title, message, onConfirm) {
+  function showConfirm(title, message, onConfirm, opts) {
+    opts = opts || {};
+    document.getElementById('confirm-icon').textContent = opts.icon || '';
     document.getElementById('confirm-title').textContent = title;
     document.getElementById('confirm-message').textContent = message;
+    var okBtn = document.getElementById('btn-confirm-ok');
+    okBtn.textContent = opts.okText || '確定';
+    okBtn.className = 'btn-confirm-ok' + (opts.okClass ? ' ' + opts.okClass : '');
     pendingConfirmAction = onConfirm;
     document.getElementById('confirm-overlay').classList.add('open');
   }
@@ -2436,16 +2442,16 @@ function initEventListeners() {
   document.getElementById('btn-menu-restart').addEventListener('click', function() {
     document.getElementById('game-menu-dropdown').classList.remove('open');
     if (!isHost) { alert('只有房主可以執行此操作'); return; }
-    showConfirm('重新開始', '確定要重新開始遊戲嗎？所有玩家的分數將歸零。', function() {
+    showConfirm('重新開始', '所有玩家的分數與籌碼將歸零，從第 1 回合重新開始。', function() {
       restartGame();
-    });
+    }, { icon: '🔄', okText: '重新開始', okClass: 'confirm-restart' });
   });
 
   // End game (host only)
   document.getElementById('btn-menu-end').addEventListener('click', function() {
     document.getElementById('game-menu-dropdown').classList.remove('open');
     if (!isHost) { alert('只有房主可以執行此操作'); return; }
-    showConfirm('結束遊戲', '確定要結束遊戲嗎？所有玩家將返回大廳。', function() {
+    showConfirm('結束遊戲', '所有玩家將離開房間並返回大廳，此操作無法復原。', function() {
       broadcastSync({ type: 'end_game' });
       // Host also returns to lobby
       stopPhaseTimer();
@@ -2461,7 +2467,7 @@ function initEventListeners() {
       isHost = false;
       gameState.phase = 'waiting';
       showScreen('screen-lobby');
-    });
+    }, { icon: '🚪', okText: '結束遊戲' });
   });
 }
 

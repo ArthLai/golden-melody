@@ -838,53 +838,72 @@ input, select {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 .game-menu-bar .game-room-info {
   font-size: 0.8rem;
   color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 .game-menu-bar .game-room-info span {
   color: var(--accent);
   font-family: monospace;
   letter-spacing: 1px;
+  background: rgba(253, 203, 110, 0.1);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
 }
 .btn-game-menu {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--glass-border);
   color: var(--text-muted);
-  font-size: 1.1rem;
-  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.7rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 .btn-game-menu:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
 }
 .game-menu-dropdown {
   display: none;
   position: absolute;
   right: 0;
-  top: 100%;
-  background: var(--bg-card);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
+  top: calc(100% + 6px);
+  background: rgba(26, 26, 46, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-sm);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   z-index: 100;
-  min-width: 160px;
+  min-width: 180px;
   overflow: hidden;
+  animation: menuSlideIn 0.15s ease-out;
+}
+@keyframes menuSlideIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .game-menu-dropdown.open {
   display: block;
 }
 .game-menu-dropdown button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   width: 100%;
-  padding: 0.65rem 1rem;
+  padding: 0.7rem 1rem;
   background: transparent;
   color: var(--text);
   border: none;
@@ -896,11 +915,14 @@ input, select {
 .game-menu-dropdown button:hover {
   background: rgba(255, 255, 255, 0.06);
 }
+.game-menu-dropdown button + button {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
 .game-menu-dropdown button.menu-danger {
   color: var(--danger);
 }
 .game-menu-dropdown button.menu-danger:hover {
-  background: rgba(225, 112, 85, 0.12);
+  background: rgba(225, 112, 85, 0.1);
 }
 .game-menu-wrapper {
   position: relative;
@@ -911,54 +933,85 @@ input, select {
   display: none;
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   z-index: 200;
   align-items: center;
   justify-content: center;
 }
 .confirm-overlay.open {
   display: flex;
+  animation: fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .confirm-dialog {
-  background: var(--bg-card);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
+  background: rgba(26, 26, 46, 0.95);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius);
-  padding: 1.5rem;
-  max-width: 340px;
+  padding: 2rem 1.75rem 1.5rem;
+  max-width: 360px;
   width: 90%;
   text-align: center;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  animation: dialogIn 0.25s ease-out;
+}
+@keyframes dialogIn {
+  from { opacity: 0; transform: scale(0.92) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.confirm-dialog .confirm-icon {
+  font-size: 2.2rem;
+  margin-bottom: 0.6rem;
 }
 .confirm-dialog h3 {
-  margin-bottom: 0.5rem;
-  font-size: 1.1rem;
+  margin-bottom: 0.4rem;
+  font-size: 1.15rem;
+  font-weight: 700;
 }
 .confirm-dialog p {
   color: var(--text-muted);
   font-size: 0.85rem;
-  margin-bottom: 1.25rem;
-  line-height: 1.5;
+  margin-bottom: 1.5rem;
+  line-height: 1.6;
 }
 .confirm-dialog .confirm-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 .confirm-dialog .confirm-actions button {
   flex: 1;
-  padding: 0.6rem;
+  padding: 0.65rem;
   border-radius: var(--radius-sm);
   font-size: 0.9rem;
   font-weight: 600;
+  transition: all 0.15s;
 }
 .confirm-dialog .btn-confirm-cancel {
   background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   color: var(--text);
+}
+.confirm-dialog .btn-confirm-cancel:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 .confirm-dialog .btn-confirm-ok {
   background: var(--danger);
   color: #fff;
+}
+.confirm-dialog .btn-confirm-ok:hover {
+  background: #d35d47;
+}
+.confirm-dialog .btn-confirm-ok.confirm-restart {
+  background: var(--primary);
+}
+.confirm-dialog .btn-confirm-ok.confirm-restart:hover {
+  background: var(--primary-dark);
 }
 
 /* ===== Desktop enhancements (>768px) ===== */
