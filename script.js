@@ -6,8 +6,8 @@
 
 // --------------- Configuration ---------------
 var CONFIG = {
-  SUPABASE_URL: 'https://hrulsakkhelwnsvpnakx.supabase.co',
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhydWxzYWtraGVsd25zdnBuYWt4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1OTE0NzAsImV4cCI6MjA5MDE2NzQ3MH0.WKeRkXy8CjtMw4kZvLzBUHZ7kF6KJI25NtgREbmb76U',
+  SUPABASE_URL: 'https://jjktcenjurbxtvepfkcr.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impqa3RjZW5qdXJieHR2ZXBma2NyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNjUxNzQsImV4cCI6MjA4OTY0MTE3NH0.NpPSERk3jwp4mRgt-7rZZSXlOn1k1jYXeIA8ww-ZMy0',
   GOOGLE_SHEET_ID: '13BKUVWdA3t-Zh8085EjhGODuD-5jZGZP5MoghM1crDY',
   PLAYBACK_SECONDS: 30,
   INITIAL_TOKENS: 2,
