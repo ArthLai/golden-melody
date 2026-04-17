@@ -460,6 +460,9 @@ function generateRoomCode() {
   return code;
 }
 
+var joinRetryCount = 0;
+var MAX_JOIN_RETRIES = 2;
+
 function joinChannel(code) {
   // Clean up any existing channel first (e.g. from attemptRejoin)
   if (channel) {
@@ -477,6 +480,7 @@ function joinChannel(code) {
 
   channel.subscribe((status, err) => {
     if (status === 'SUBSCRIBED') {
+      joinRetryCount = 0;
       // announce self
       broadcastSync({
         type: 'player_join',
@@ -484,7 +488,24 @@ function joinChannel(code) {
       });
     } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
       console.error('Channel subscribe failed:', status, err);
-      alert('連線失敗，請重試。(' + status + ')');
+      // Auto-retry up to MAX_JOIN_RETRIES times
+      if (joinRetryCount < MAX_JOIN_RETRIES) {
+        joinRetryCount++;
+        console.log('Retrying channel join... attempt', joinRetryCount);
+        setTimeout(function() { joinChannel(code); }, 1500 * joinRetryCount);
+      } else {
+        joinRetryCount = 0;
+        var errMsg = '連線失敗';
+        if (String(err).indexOf('UnableToConnectToProject') >= 0) {
+          errMsg = '伺服器暫時無法連線（Supabase 專案可能已暫停），請稍後再試或聯繫房主';
+        } else if (status === 'TIMED_OUT') {
+          errMsg = '連線逾時，請檢查網路後重試';
+        } else {
+          errMsg = '連線失敗 (' + status + ')，請重新整理頁面後再試';
+        }
+        alert(errMsg);
+        showScreen('screen-lobby');
+      }
     }
   });
 }
